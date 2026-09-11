@@ -1,21 +1,112 @@
-<style>
-textarea {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  resize: none;
-  background: none;
-}
-#background {
-  color: #f00;
-}
-</style>
-<textarea id="background"></textarea>
-<textarea id="current"></textarea>
-<script>
-current.addEventListener("input", (e) => {
-  background.value = current.value + "asdf"
-})
-</script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Editor</title>
+  <style>
+    #background, #current {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: calc(100% - 10px);
+      min-height: calc(100% - 10px);
+      resize: none;
+      background: none;
+      font-size: 16px;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      outline: 0;
+      font-family: monospace, monospace;
+      white-space: pre-wrap;
+      box-sizing: border-box;
+      word-wrap: break-word;
+      field-sizing: content;
+    }
+    #background {
+      color: #f00;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <p id="background"></p>
+  <textarea id="current"></textarea>
+  <script>
+    function escapeHTML(text) {
+      let pre = document.createElement("pre");
+      pre.innerText = text;
+      return pre.innerHTML;
+    }
+    function parseMathHelper(arr) {
+      // 1. parenthesis
+      let i = 0
+      while (i < arr.length) {
+        if (arr[i] == "(") {
+          let startIdx = i
+          while (arr[i] != ")" && i < arr.length) {
+            i++
+          }
+          let endIdx = i
+          if (i >= arr.length) console.warn("Closed an unclosed parenthesis")
+          arr = [
+            ...arr.slice(0,startIdx)
+            parseMathHelper(arr.slice(startIdx, endIdx))
+            ...arr.slice(endIdx, arr.length)
+          ]
+        }
+      }
+      // 2. exponentials
+      // 3. multiplication/division
+      // 4. addition/subtraction
+      let checks = [
+        (o,a,b) => n=="^" || n=="**",
+        (o,a,b) => n=="/",
+        (o,a,b) => n=="*",
+        (o,a,b) => n=="+",
+        (o,a,b) => n=="-",
+      ]
+      i = 0
+      while (i < arr.length) {
+        if (arr[i] == "^" || arr[i] == "**") {
+          let result = arr[i-1] ** arr[i+1]
+          arr = [
+            ...arr.slice(0,i-1)
+            result
+            ...arr.slice(i+1, arr.length)
+          ]
+        }
+      }
+    }
+    function parseMath(text) {
+      if (/[^0-9+\-*\/^.\(\)]/.test(text)) throw "Invalid character in simple math parser"
+      let splitParts = []
+      let i = 0
+      while (i < text.length) {
+        let currentNum = ""
+        while (/\d|\./.test(text[i])) {
+          currentNum += text[i]
+          i++
+        }
+        if (currentNum) {
+          splitParts.push(parseFloat(current))
+          continue
+        }
+        let currentOperation = ""
+        while (/+\-*\/^\(\)]/.test(text[i])) {
+          currentOperation += text[i]
+          i++
+        }
+        splitParts.push(currentOperation)
+        if (!currentOperation) throw "This should not happen"
+      }
+      return parseMathHelper(splitParts)
+    }
+    
+    current.addEventListener("input", (e) => {
+      background.innerHTML = `<span style="opacity:0">${escapeHTML(current.value)}</span>END`;
+    });
+  </script>
+</body>
+</html>
