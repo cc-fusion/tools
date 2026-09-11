@@ -1,0 +1,21 @@
+<style>
+textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  background: none;
+}
+#background {
+  color: #f00;
+}
+</style>
+<textarea id="background"></textarea>
+<textarea id="current"></textarea>
+<script>
+current.addEventListener("input", (e) => {
+  background.value = current.value + "asdf"
+})
+</script>
