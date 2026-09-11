@@ -40,69 +40,77 @@
       return pre.innerHTML;
     }
     function parseMathHelper(arr) {
-      // 1. parenthesis
-      let i = 0
-      while (i < arr.length) {
-        if (arr[i] == "(") {
-          let startIdx = i
-          while (arr[i] != ")" && i < arr.length) {
-            i++
-          }
-          let endIdx = i
-          if (i >= arr.length) console.warn("Closed an unclosed parenthesis")
-          arr = [
-            ...arr.slice(0,startIdx)
-            parseMathHelper(arr.slice(startIdx, endIdx))
-            ...arr.slice(endIdx, arr.length)
-          ]
-        }
+  // 1. parenthesis
+  console.log("Math helper recieved", arr)
+  let i = 0
+  while (i < arr.length) {
+    console.log("Parsing", arr[i], "Arr = ", arr)
+    if (arr[i] == "(") {
+      let startIdx = i
+      while (i < arr.length && arr[i] != ")") {
+        i++
       }
-      // 2. exponentials
-      // 3. multiplication/division
-      // 4. addition/subtraction
-      let checks = [
-        (o,a,b) => n=="^" || n=="**",
-        (o,a,b) => n=="/",
-        (o,a,b) => n=="*",
-        (o,a,b) => n=="+",
-        (o,a,b) => n=="-",
+      let endIdx = i
+      if (i >= arr.length) console.warn("Closed an unclosed parenthesis")
+      arr = [
+        ...arr.slice(0,startIdx),
+        parseMathHelper(arr.slice(startIdx, endIdx)),
+        ...arr.slice(endIdx, arr.length)
       ]
-      i = 0
-      while (i < arr.length) {
-        if (arr[i] == "^" || arr[i] == "**") {
-          let result = arr[i-1] ** arr[i+1]
-          arr = [
-            ...arr.slice(0,i-1)
-            result
-            ...arr.slice(i+1, arr.length)
-          ]
-        }
-      }
+    } else {i++}
+  }
+  // 2. exponentials
+  // 3. multiplication/division
+  // 4. addition/subtraction
+  let equations = [
+    (n,a,b) => (n=="^" || n=="**")?(a**b):null,
+    (n,a,b) => n=="/"?a/b:(n=="*"?a*b:null),
+    (n,a,b) => n=="-"?a-b:(n=="+"?a+b:null)
+  ]
+  for (let equationFn of equations) {
+    i = 0
+    while (i < arr.length) {
+      console.log("Parsing", arr[i], "Arr = ", arr)
+      let equationResult = equationFn(arr[i], arr[i-1], arr[i+1])
+      if (equationResult !== null) {
+        let result = equationResult
+        arr = [
+          ...arr.slice(0,i-1),
+          result,
+          ...arr.slice(i+2, arr.length)
+        ]
+        console.log("Parsed", arr[i], "Arr = ", arr)
+      } else {i++}
     }
-    function parseMath(text) {
-      if (/[^0-9+\-*\/^.\(\)]/.test(text)) throw "Invalid character in simple math parser"
-      let splitParts = []
-      let i = 0
-      while (i < text.length) {
-        let currentNum = ""
-        while (/\d|\./.test(text[i])) {
-          currentNum += text[i]
-          i++
-        }
-        if (currentNum) {
-          splitParts.push(parseFloat(current))
-          continue
-        }
-        let currentOperation = ""
-        while (/+\-*\/^\(\)]/.test(text[i])) {
-          currentOperation += text[i]
-          i++
-        }
-        splitParts.push(currentOperation)
-        if (!currentOperation) throw "This should not happen"
-      }
-      return parseMathHelper(splitParts)
+  }
+  console.log("Arr = ", arr)
+  return arr
+}
+function parseMath(text) {
+  if (/[^0-9+\-*\/^.\(\)]/.test(text)) throw "Invalid character in simple math parser"
+  let splitParts = []
+  let i = 0
+  while (i < text.length) {
+    console.log("Trying " + text[i])
+    let currentNum = ""
+    while (i < text.length && /\d|\./.test(text[i])) {
+      currentNum += text[i]
+      i++
     }
+    if (currentNum) {
+      splitParts.push(parseFloat(currentNum))
+      continue
+    }
+    let currentOperation = ""
+    while (i < text.length && /[+\-*\/^\(\)]/.test(text[i])) {
+      currentOperation += text[i]
+      i++
+    }
+    splitParts.push(currentOperation)
+    if (!currentOperation) throw "This should not happen"
+  }
+  return parseMathHelper(splitParts)
+}
     
     current.addEventListener("input", (e) => {
       background.innerHTML = `<span style="opacity:0">${escapeHTML(current.value)}</span>END`;
