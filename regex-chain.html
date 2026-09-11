@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Regex Stack</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --text: #111827;
+      --muted: #6b7280;
+      --faint: #9ca3af;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --radius: 10px;
+      --shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      font-family: var(--sans);
+      color: var(--text);
+      background: var(--bg);
+      display: flex;
+      justify-content: center;
+    }
+
+    body.dragging, body.dragging * {
+      cursor: grabbing !important;
+      user-select: none !important;
+    }
+
+    button, input, textarea { font-family: inherit; }
+
+    .app {
+      width: 100%;
+      max-width: 880px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 20px 16px;
+      gap: 14px;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .input-panel, .result-panel {
+      flex: 1 1 auto;
+      min-height: 140px;
+    }
+
+    .steps-panel {
+      flex: 0 0 auto;
+      padding: 12px;
+      gap: 0;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px 0;
+      flex-shrink: 0;
+    }
+
+    .steps-panel .section-head { padding: 0; }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .collapse-toggle {
+      border: none;
+      background: transparent;
+      padding: 2px 4px 2px 2px;
+      margin: -2px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .collapse-toggle:hover { color: var(--text); background: var(--bg); }
+
+    .chevron {
+      width: 10px;
+      height: 10px;
+      display: block;
+      transition: transform 0.2s ease;
+    }
+
+    .steps-panel.collapsed .chevron { transform: rotate(-90deg); }
+
+    .meta {
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .meta.error { color: var(--danger); }
+
+    .icon-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 7px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+    }
+
+    .icon-btn:hover {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .icon-btn.danger:hover {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    textarea {
+      flex: 1;
+      width: 100%;
+      border: none;
+      resize: none;
+      padding: 10px 12px 12px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text);
+      background: transparent;
+      min-height: 88px;
+    }
+
+    textarea:focus { outline: none; }
+    textarea::placeholder { color: var(--faint); }
+    #result { color: #1f2937; }
+
+    .collapsible {
+      display: grid;
+      grid-template-rows: 1fr;
+      transition: grid-template-rows 0.22s ease;
+    }
+
+    .steps-panel.collapsed .collapsible { grid-template-rows: 0fr; }
+
+    .collapsible-inner {
+      overflow: hidden;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .steps-panel:not(.collapsed) .collapsible-inner { padding-top: 10px; }
+
+    #steps {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--faint);
+      font-size: 13px;
+      padding: 18px 8px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      grid-template-rows: auto auto auto;
+      gap: 6px 8px;
+      align-items: center;
+      padding: 8px 8px 8px 4px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: #fafafa;
+      border-left: 3px solid #d1d5db;
+    }
+
+    .step.has-error {
+      border-color: #fecaca;
+      border-left-color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .drag-handle {
+      grid-row: 1 / 3;
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      color: var(--faint);
+      touch-action: none;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+    }
+
+    .drag-handle:hover { color: var(--text); background: #eee; }
+
+    .pattern-row, .replacement-row {
+      grid-column: 2;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .slash {
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .arrow {
+      color: var(--faint);
+      flex-shrink: 0;
+      width: 14px;
+      display: flex;
+    }
+
+    .step input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--text);
+    }
+
+    .step input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .step[data-mode="list"] .replacement-row { display: none; }
+    .step[data-mode="list"] .drag-handle { grid-row: 1; }
+
+    .step-side {
+      grid-column: 3;
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+
+    .step[data-mode="list"] .step-side { grid-row: 1; }
+
+    .flags { display: flex; gap: 2px; }
+
+    .flag {
+      width: 22px;
+      height: 22px;
+      border: none;
+      background: transparent;
+      color: var(--faint);
+      border-radius: 5px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .flag:hover { background: #eee; color: var(--text); }
+
+    .flag.on {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .mode-toggle {
+      display: flex;
+      background: #eee;
+      border-radius: 6px;
+      padding: 2px;
+    }
+
+    .mode-toggle button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .mode-toggle button.on {
+      background: #fff;
+      color: var(--text);
+      box-shadow: var(--shadow);
+    }
+
+    .step-actions { display: flex; }
+
+    .step-error {
+      grid-column: 2 / 4;
+      font-size: 11px;
+      color: var(--danger);
+      display: none;
+      padding: 0 2px 2px;
+    }
+
+    .step.has-error .step-error { display: block; }
+
+    .add-step {
+      width: 100%;
+      border: 1px dashed var(--border-strong);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 9px;
+      padding: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 550;
+      flex-shrink: 0;
+    }
+
+    .add-step:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .step-placeholder {
+      border: 1px dashed var(--accent);
+      background: var(--accent-soft);
+      border-radius: 9px;
+      min-height: 48px;
+    }
+
+    .step-ghost {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 1000;
+      pointer-events: none;
+      margin: 0;
+      box-shadow: 0 12px 28px rgba(17, 24, 39, 0.18);
+      opacity: 0.96;
+      transform-origin: top left;
+      will-change: transform;
+    }
+
+    .copy-btn.copied { color: #059669; }
+
+    svg { display: block; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Regex Stack</h1>
+      <span class="hint">Each step feeds the next · drag to reorder</span>
+    </header>
+
+    <section class="panel input-panel">
+      <div class="section-head">
+        <span class="section-label">Input</span>
+        <span class="meta" id="input-meta">0 chars · 1 line</span>
+      </div>
+      <textarea id="input" spellcheck="false" placeholder="Paste text here…"></textarea>
+    </section>
+
+    <section class="panel steps-panel" id="steps-panel">
+      <div class="section-head">
+        <button type="button" class="section-label collapse-toggle" id="toggle-steps" aria-expanded="true" title="Collapse regex chain">
+          <svg class="chevron" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M2 3.5L5 6.5L8 3.5"/>
+          </svg>
+          Regex chains
+        </button>
+        <span class="meta" id="steps-meta"></span>
+      </div>
+      <div class="collapsible">
+        <div class="collapsible-inner">
+          <div id="steps"></div>
+          <button type="button" class="add-step" id="add-step">+ Add step</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel result-panel">
+      <div class="section-head">
+        <span class="section-label">Result</span>
+        <span class="meta" id="result-meta">0 chars · 1 line</span>
+        <button type="button" class="icon-btn copy-btn" id="copy-result" title="Copy result">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg>
+        </button>
+      </div>
+      <textarea id="result" readonly spellcheck="false" placeholder="Output appears here"></textarea>
+    </section>
+  </div>
+
+  <script>
+    const STORAGE_KEY = location.pathname + ':regex-stack';
+    const FLAG_ORDER = ['g', 'i', 'm', 's', 'u', 'y'];
+
+    const $ = (id) => document.getElementById(id);
+    const inputEl = $('input');
+    const resultEl = $('result');
+    const stepsEl = $('steps');
+    const stepsPanel = $('steps-panel');
+    const toggleBtn = $('toggle-steps');
+    const inputMeta = $('input-meta');
+    const resultMeta = $('result-meta');
+    const stepsMeta = $('steps-meta');
+
+    function uid() {
+      return Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+      ));
+    }
+
+    function defaultStep() {
+      return { id: uid(), pattern: '', replacement: '', flags: 'g', mode: 'replace' };
+    }
+
+    function normalizeSteps(steps) {
+      if (!Array.isArray(steps) || !steps.length) return [defaultStep()];
+      return steps.map((s) => ({
+        id: s.id || uid(),
+        pattern: s.pattern || '',
+        replacement: s.replacement || '',
+        flags: typeof s.flags === 'string' ? s.flags : 'g',
+        mode: s.mode === 'list' ? 'list' : 'replace'
+      }));
+    }
+
+    function defaultState() {
+      return { input: '', steps: [defaultStep()], collapsed: false };
+    }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return defaultState();
+        const data = JSON.parse(raw);
+        if (!data || typeof data !== 'object') return defaultState();
+
+        let steps = data.steps;
+        if ((!steps || !steps.length) && Array.isArray(data.chains) && data.chains.length) {
+          const chain = data.chains.find((c) => c.id === data.activeId) || data.chains[0];
+          steps = chain && chain.steps;
+        }
+
+        return {
+          input: data.input || '',
+          steps: normalizeSteps(steps),
+          collapsed: !!data.collapsed
+        };
+      } catch {
+        return defaultState();
+      }
+    }
+
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        input: state.input,
+        steps: state.steps,
+        collapsed: state.collapsed
+      }));
+    }
+
+    let state = load();
+    let dragging = false;
+
+    function findStep(id) {
+      return state.steps.find((s) => s.id === id);
+    }
+
+    function stats(text) {
+      const lines = text ? text.split('\n').length : 1;
+      return text.length + ' chars · ' + lines + ' line' + (lines === 1 ? '' : 's');
+    }
+
+    function formatMatch(m) {
+      if (m.length > 1) return Array.from(m).slice(1).map((g) => g ?? '').join('\t');
+      return m[0];
+    }
+
+    function applyList(text, re) {
+      const out = [];
+      if (re.global) {
+        for (const m of text.matchAll(re)) out.push(formatMatch(m));
+      } else {
+        const m = text.match(re);
+        if (m) out.push(formatMatch(m));
+      }
+      return out.join('\n');
+    }
+
+    function setCollapsed(collapsed) {
+      state.collapsed = collapsed;
+      stepsPanel.classList.toggle('collapsed', collapsed);
+      toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+      toggleBtn.title = collapsed ? 'Expand regex chain' : 'Collapse regex chain';
+      const n = state.steps.length;
+      stepsMeta.textContent = collapsed ? n + ' step' + (n === 1 ? '' : 's') : '';
+      save();
+    }
+
+    function run() {
+      let text = state.input;
+      let error = null;
+
+      stepsEl.querySelectorAll('.step').forEach((el) => {
+        el.classList.remove('has-error');
+        const errEl = el.querySelector('.step-error');
+        if (errEl) errEl.textContent = '';
+      });
+
+      for (const step of state.steps) {
+        if (!step.pattern) continue;
+        try {
+          const re = new RegExp(step.pattern, step.flags);
+          text = step.mode === 'list' ? applyList(text, re) : text.replace(re, step.replacement);
+        } catch (err) {
+          error = err.message;
+          const el = stepsEl.querySelector('.step[data-id="' + step.id + '"]');
+          if (el) {
+            el.classList.add('has-error');
+            const errEl = el.querySelector('.step-error');
+            if (errEl) errEl.textContent = err.message;
+          }
+          break;
+        }
+      }
+
+      resultEl.value = text;
+      inputMeta.textContent = stats(state.input);
+      resultMeta.textContent = error ? error : stats(text);
+      resultMeta.classList.toggle('error', !!error);
+      if (state.collapsed) {
+        const n = state.steps.length;
+        stepsMeta.textContent = n + ' step' + (n === 1 ? '' : 's');
+      }
+    }
+
+    function flagButtons(flags) {
+      return FLAG_ORDER.map((f) => (
+        '<button type="button" class="flag' + (flags.includes(f) ? ' on' : '') +
+        '" data-flag="' + f + '" title="Flag ' + f + '">' + f + '</button>'
+      )).join('');
+    }
+
+    function renderSteps() {
+      if (dragging) return;
+      if (!state.steps.length) {
+        stepsEl.innerHTML = '<div class="empty">No steps — output equals input.</div>';
+        return;
+      }
+      stepsEl.innerHTML = state.steps.map((step) => `
+        <div class="step" data-id="${step.id}" data-mode="${step.mode}">
+          <button type="button" class="drag-handle" title="Drag to reorder" tabindex="-1">
+            <svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor">
+              <circle cx="4" cy="3" r="1.15"/><circle cx="8" cy="3" r="1.15"/>
+              <circle cx="4" cy="8" r="1.15"/><circle cx="8" cy="8" r="1.15"/>
+              <circle cx="4" cy="13" r="1.15"/><circle cx="8" cy="13" r="1.15"/>
+            </svg>
+          </button>
+          <div class="pattern-row">
+            <span class="slash">/</span>
+            <input type="text" class="pattern" spellcheck="false" autocomplete="off"
+              placeholder="pattern" value="${escapeHtml(step.pattern)}">
+            <span class="slash">/</span>
+          </div>
+          <div class="replacement-row">
+            <span class="arrow">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+                <path d="M3 8h10M9 4l4 4-4 4"/>
+              </svg>
+            </span>
+            <input type="text" class="replacement" spellcheck="false" autocomplete="off"
+              placeholder="replacement ($1, $&amp;…)" value="${escapeHtml(step.replacement)}">
+          </div>
+          <div class="step-side">
+            <div class="flags">${flagButtons(step.flags)}</div>
+            <div class="mode-toggle">
+              <button type="button" data-mode="replace" class="${step.mode === 'replace' ? 'on' : ''}" title="Find and replace">Replace</button>
+              <button type="button" data-mode="list" class="${step.mode === 'list' ? 'on' : ''}" title="Extract all matches, or capture groups if present">List</button>
+            </div>
+            <div class="step-actions">
+              <button type="button" class="icon-btn dup-step" title="Duplicate step">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg>
+              </button>
+              <button type="button" class="icon-btn danger del-step" title="Remove step">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M6 4.5V3h4v1.5M6.5 7v5M9.5 7v5M4.5 4.5l.7 8.2A1.5 1.5 0 0 0 6.7 14h2.6a1.5 1.5 0 0 0 1.5-1.3l.7-8.2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="step-error"></div>
+        </div>
+      `).join('');
+    }
+
+    function addStep() {
+      state.steps.push(defaultStep());
+      save();
+      renderSteps();
+      run();
+      const last = stepsEl.querySelector('.step:last-child .pattern');
+      if (last) last.focus();
+    }
+
+    function duplicateStep(id) {
+      const i = state.steps.findIndex((s) => s.id === id);
+      if (i < 0) return;
+      state.steps.splice(i + 1, 0, { ...state.steps[i], id: uid() });
+      save();
+      renderSteps();
+      run();
+    }
+
+    function removeStep(id) {
+      state.steps = state.steps.filter((s) => s.id !== id);
+      save();
+      renderSteps();
+      run();
+    }
+
+    function applyOrder(ids) {
+      const map = new Map(state.steps.map((s) => [s.id, s]));
+      state.steps = ids.map((id) => map.get(id)).filter(Boolean);
+      save();
+      run();
+    }
+
+    function startDrag(e, item) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      dragging = true;
+      document.body.classList.add('dragging');
+
+      const id = item.dataset.id;
+      const rect = item.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'step-placeholder';
+      placeholder.style.height = rect.height + 'px';
+
+      const ghost = item.cloneNode(true);
+      ghost.classList.add('step-ghost');
+      ghost.style.width = rect.width + 'px';
+      document.body.appendChild(ghost);
+
+      item.replaceWith(placeholder);
+
+      const moveGhost = (x, y) => {
+        ghost.style.transform = 'translate3d(' + (x - offsetX) + 'px,' + (y - offsetY) + 'px,0) scale(1.015)';
+      };
+      moveGhost(e.clientX, e.clientY);
+
+      const orderFromDom = () => {
+        const ids = [];
+        for (const child of stepsEl.children) {
+          if (child === placeholder) ids.push(id);
+          else if (child.classList.contains('step')) ids.push(child.dataset.id);
+        }
+        return ids;
+      };
+
+      let lastOrder = orderFromDom().join();
+
+      const onMove = (ev) => {
+        moveGhost(ev.clientX, ev.clientY);
+
+        if (ev.clientY < 48) window.scrollBy(0, -14);
+        else if (ev.clientY > window.innerHeight - 48) window.scrollBy(0, 14);
+
+        const others = [...stepsEl.querySelectorAll('.step')];
+        let before = null;
+        for (const el of others) {
+          const r = el.getBoundingClientRect();
+          if (ev.clientY < r.top + r.height / 2) {
+            before = el;
+            break;
+          }
+        }
+        if (before) {
+          if (placeholder.nextElementSibling !== before) stepsEl.insertBefore(placeholder, before);
+        } else if (placeholder.nextElementSibling) {
+          stepsEl.appendChild(placeholder);
+        }
+
+        const order = orderFromDom().join();
+        if (order !== lastOrder) {
+          lastOrder = order;
+          applyOrder(orderFromDom());
+        }
+      };
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        window.removeEventListener('keydown', onKey);
+        placeholder.replaceWith(item);
+        ghost.remove();
+        document.body.classList.remove('dragging');
+        dragging = false;
+        applyOrder([...stepsEl.querySelectorAll('.step')].map((el) => el.dataset.id));
+        renderSteps();
+      };
+
+      const onKey = (ev) => {
+        if (ev.key === 'Escape') {
+          const orig = state.steps.findIndex((s) => s.id === id);
+          const ref = [...stepsEl.querySelectorAll('.step')][orig] || null;
+          if (ref) stepsEl.insertBefore(placeholder, ref);
+          else stepsEl.appendChild(placeholder);
+          onUp();
+        }
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+      window.addEventListener('keydown', onKey);
+    }
+
+    inputEl.addEventListener('input', () => {
+      state.input = inputEl.value;
+      save();
+      run();
+    });
+
+    toggleBtn.addEventListener('click', () => setCollapsed(!state.collapsed));
+
+    stepsEl.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle) return;
+      const item = handle.closest('.step');
+      if (item) startDrag(e, item);
+    });
+
+    stepsEl.addEventListener('input', (e) => {
+      const stepEl = e.target.closest('.step');
+      if (!stepEl) return;
+      const step = findStep(stepEl.dataset.id);
+      if (!step) return;
+      if (e.target.classList.contains('pattern')) step.pattern = e.target.value;
+      if (e.target.classList.contains('replacement')) step.replacement = e.target.value;
+      save();
+      run();
+    });
+
+    stepsEl.addEventListener('click', (e) => {
+      const stepEl = e.target.closest('.step');
+      if (!stepEl) return;
+      const step = findStep(stepEl.dataset.id);
+      if (!step) return;
+
+      const flag = e.target.closest('.flag');
+      if (flag) {
+        flag.classList.toggle('on');
+        step.flags = [...stepEl.querySelectorAll('.flag.on')].map((b) => b.dataset.flag).join('');
+        save();
+        run();
+        return;
+      }
+
+      const modeBtn = e.target.closest('.mode-toggle button');
+      if (modeBtn) {
+        step.mode = modeBtn.dataset.mode;
+        stepEl.dataset.mode = step.mode;
+        stepEl.querySelectorAll('.mode-toggle button').forEach((b) => {
+          b.classList.toggle('on', b.dataset.mode === step.mode);
+        });
+        save();
+        run();
+        return;
+      }
+
+      if (e.target.closest('.dup-step')) duplicateStep(step.id);
+      if (e.target.closest('.del-step')) removeStep(step.id);
+    });
+
+    $('add-step').addEventListener('click', addStep);
+
+    $('copy-result').addEventListener('click', async () => {
+      const btn = $('copy-result');
+      try {
+        await navigator.clipboard.writeText(resultEl.value);
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 900);
+      } catch {
+        resultEl.select();
+        document.execCommand('copy');
+      }
+    });
+
+    inputEl.value = state.input;
+    setCollapsed(state.collapsed);
+    renderSteps();
+    run();
+  </script>
+</body>
+</html>
