@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,6 +27,7 @@
     }
   </style>
 </head>
+
 <body>
   <p id="textarea" contenteditable="true"></p>
   <script>
@@ -137,18 +139,28 @@
       selection.removeAllRanges()
       selection.addRange(range)
     }
+    function deleteAllHTML(html, query) {
+      let tempEl = document.createElement("pre")
+      tempEl.innerHTML = html
+      tempEl.querySelectorAll(query).forEach(e=>e.remove())
+      return tempEl.innerHTML
+    }
     textarea.addEventListener("input", (e) => {
+      textarea.innerHTML = deleteAllHTML(textarea.innerHTML, "b")
       let caretPos = getCaretPosition(textarea)
+      let plainText = textarea.innerText
       currentSuggestion = null
-      let mathExpr = textarea.innerText.slice(0,selectionEnd).match(/([0-9]+[+\-*\/^.\(\)]*)+=$/)
+      let mathExpr = textarea.innerText.slice(0,caretPos).match(/([0-9]+[+\-*\/^.\(\)]*)+=$/)
+      console.log(mathExpr)
       let extension = ""
       if (mathExpr) {
         mathExpr = mathExpr[0].replace("=", "")
         let parts = getMathParts(mathExpr)
         if (parts.length > 1) extension = parseMathParts(parts) 
       }
-      textarea.innerHTML = escapeHTML(textarea.slice(0,caretPos) + "TEST" + textarea.slice(caretPos+1, textarea.length))
+      textarea.innerHTML = escapeHTML(plainText.slice(0,caretPos)) + "<b>TEST</b>" + escapeHTML(plainText.slice(caretPos+1, plainText.length))
     });
   </script>
 </body>
+
 </html>
