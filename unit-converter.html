@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Editor</title>
+  <style>
+  </style>
+</head>
+
+<body>
+  <input>
+  <select id="typeFrom">
+  <option>mm (milimeters)</option>
+  <option>cm (centimeters)</option>
+  <option>m (meters)</option>
+  <option>km (kilometers)</option>
+  <option>in (inches)</option>
+  <option>y (yards)</option>
+  <option>ft (feet)</option>
+  <option>mi (miles)</option>
+  
+  <option>g (grams)</option>
+  <option>oz (ounces)</option>
+  
+  </select>
+  <select id="typeTo">
+  </select>
+  
+  <script>
+    let conversions = {
+      length: {
+        "mm": {
+          name: "milimeters",
+          nameSinglular: "milimeter",
+          meterEquiv: "0.001"
+        },
+        "cm": {},
+        "m": {},
+        "km": {},
+        "in": {},
+        "y": {},
+        "ft": {},
+        "mi": {},
+
+        "qm": {},
+        "rm": {},
+        "ym": {},
+        "zm": {},
+        "am": {},
+        "fm": {},
+        "pm": {},
+        "nm": {},
+        "μm": {},
+        "dm": {},
+        "dam": {},
+        "Hm": {},
+        "Mm": {},
+        "Gm": {},
+        "Tm": {},
+        "Pm": {},
+        "Em": {},
+        "Zm": {},
+        "Ym": {},
+        "Rm": {},
+        "Qm": {},
+        "fur": {},
+        "league": {},
+        "ftm": {},
+        "au": {},
+        "ly": {},
+        "pc": {},
+        "Å": {},
+      },
+      weight: {
+
+      },
+      volume: {
+
+      }
+    }
+    function parseMathParts(arr) {
+      // 1. parenthesis
+      console.log("Math helper recieved", arr)
+      let i = 0
+      while (i < arr.length) {
+        console.log("Parsing", arr[i], "Arr = ", arr)
+        if (arr[i] == "(") {
+          let startIdx = i
+          while (i < arr.length && arr[i] != ")") {
+            i++
+          }
+          let endIdx = i
+          if (i >= arr.length) console.warn("Closed an unclosed parenthesis")
+          arr = [
+            ...arr.slice(0,startIdx),
+            parseMathParts(arr.slice(startIdx, endIdx)),
+            ...arr.slice(endIdx, arr.length)
+          ]
+        } else {i++}
+      }
+      // 2. exponentials
+      // 3. multiplication/division
+      // 4. addition/subtraction
+      let equations = [
+        (n,a,b) => (n=="^" || n=="**")?(a**b):null,
+        (n,a,b) => n=="/"?a/b:(n=="*"?a*b:null),
+        (n,a,b) => n=="-"?a-b:(n=="+"?a+b:null)
+      ]
+      for (let equationFn of equations) {
+        i = 0
+        while (i < arr.length) {
+          console.log("Parsing", arr[i], "Arr = ", arr)
+          let equationResult = equationFn(arr[i], arr[i-1], arr[i+1])
+          if (equationResult !== null) {
+            let result = equationResult
+            arr = [
+              ...arr.slice(0,i-1),
+              result,
+              ...arr.slice(i+2, arr.length)
+            ]
+            console.log("Parsed", arr[i], "Arr = ", arr)
+          } else {i++}
+        }
+      }
+      console.log("Arr = ", arr)
+      return arr
+    }
+    function getMathParts(text) {
+      let splitParts = []
+      let i = 0
+      while (i < text.length) {
+        console.log("Trying " + text[i])
+        let currentNum = ""
+        while (i < text.length && /\d|\./.test(text[i])) {
+          currentNum += text[i]
+          i++
+        }
+        if (currentNum) {
+          splitParts.push(parseFloat(currentNum))
+          continue
+        }
+        let currentOperation = ""
+        while (i < text.length && /[+\-*\/^\(\)]/.test(text[i])) {
+          currentOperation += text[i]
+          i++
+        }
+        splitParts.push(currentOperation)
+        if (!currentOperation) throw "This should not happen"
+      }
+      return splitParts
+    }
+    function parseMath(text) {
+      if (/[^0-9+\-*\/^.\(\)]/.test(text)) throw "Invalid character in simple math parser"
+      return parseMathParts(getMathParts(text))
+    }
+  </script>
+</body>
+
+</html>
