@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML Compiler</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #1a1a1a;
+      --toolbar: #f6f6f6;
+      --border: #e5e5e5;
+      --btn: #111111;
+      --btn-fg: #ffffff;
+      --btn-hover: #333333;
+      --ghost: transparent;
+      --ghost-hover: #ececec;
+      --resizer: #e5e5e5;
+      --resizer-hover: #c8c8c8;
+    }
+
+    html[data-theme="dark"] {
+      --bg: #1e1e1e;
+      --fg: #d4d4d4;
+      --toolbar: #252526;
+      --border: #2b2b2b;
+      --btn: #f0f0f0;
+      --btn-fg: #111111;
+      --btn-hover: #ffffff;
+      --ghost: transparent;
+      --ghost-hover: #333333;
+      --resizer: #2b2b2b;
+      --resizer-hover: #4a4a4a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 44px;
+      padding: 0 10px;
+      background: var(--toolbar);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #run {
+      appearance: none;
+      border: none;
+      background: var(--btn);
+      color: var(--btn-fg);
+      height: 28px;
+      padding: 0 14px;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+    }
+
+    #run:hover { background: var(--btn-hover); }
+    #run:active { transform: scale(0.97); }
+
+    #theme {
+      appearance: none;
+      border: none;
+      background: var(--ghost);
+      color: var(--fg);
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    #theme:hover { background: var(--ghost-hover); }
+    #theme svg { width: 16px; height: 16px; display: block; }
+    html[data-theme="light"] #theme .sun { display: none; }
+    html[data-theme="dark"] #theme .moon { display: none; }
+
+    #run:focus-visible,
+    #theme:focus-visible {
+      outline: 2px solid var(--btn);
+      outline-offset: 2px;
+    }
+
+    .main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 5px 1fr;
+      min-height: 0;
+    }
+
+    #editor {
+      min-width: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .resizer {
+      background: var(--resizer);
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    .resizer:hover,
+    .resizer.active {
+      background: var(--resizer-hover);
+    }
+
+    #preview {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #fff;
+      min-width: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="run" type="button">Run</button>
+    <button id="theme" type="button" aria-label="Toggle theme">
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/>
+      </svg>
+    </button>
+  </div>
+  <div class="main" id="main">
+    <div id="editor"></div>
+    <div class="resizer" id="resizer"></div>
+    <iframe id="preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads" title="Preview"></iframe>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script>
+    const STORAGE_KEY = 'html-compiler-code';
+    const THEME_KEY = 'html-compiler-theme';
+    const DEFAULT_CODE = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Document</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 2rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hello, world</h1>
+</body>
+</html>
+`;
+
+    function systemTheme() {
+      return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function currentTheme() {
+      return document.documentElement.getAttribute('data-theme') || systemTheme();
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem(THEME_KEY, theme);
+      if (window.monaco) monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+    }
+
+    applyTheme(localStorage.getItem(THEME_KEY) || systemTheme());
+
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        const base = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/';
+        return `data:text/javascript;charset=utf-8,${encodeURIComponent(`
+          self.MonacoEnvironment = { baseUrl: '${base}' };
+          importScripts('${base}vs/base/worker/workerMain.js');
+        `)}`;
+      }
+    };
+
+    require.config({
+      paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' }
+    });
+
+    require(['vs/editor/editor.main'], function () {
+      const initialTheme = currentTheme();
+      const initialCode = localStorage.getItem(STORAGE_KEY) || DEFAULT_CODE;
+    
+      const editor = monaco.editor.create(document.getElementById('editor'), {
+        value: initialCode,
+        language: 'html',
+        theme: initialTheme === 'dark' ? 'vs-dark' : 'vs',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 14,
+        lineHeight: 22,
+        padding: { top: 12, bottom: 12 },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        tabSize: 2,
+        renderLineHighlight: 'line',
+        smoothScrolling: true,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8
+        }
+      });
+    
+      // Ensure HTML syntax highlighting is applied on page load.
+      const model = editor.getModel();
+    
+      if (model) {
+        monaco.editor.setModelLanguage(model, 'html');
+      }
+    
+      monaco.editor.setTheme(
+        initialTheme === 'dark' ? 'vs-dark' : 'vs'
+      );
+    
+      editor.layout();
+    
+      const preview = document.getElementById('preview');
+      let saveTimer;
+    
+      function save() {
+        localStorage.setItem(STORAGE_KEY, editor.getValue());
+      }
+    
+      function run() {
+        save();
+        preview.srcdoc = editor.getValue();
+      }
+    
+      editor.onDidChangeModelContent(function () {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(save, 250);
+      });
+    
+      document.getElementById('run').addEventListener('click', run);
+    
+      document.getElementById('theme').addEventListener('click', function () {
+        applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+      });
+    
+      editor.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+        run
+      );
+    
+      run();
+    });
+  </script>
+</body>
+</html>
