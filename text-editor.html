@@ -6,15 +6,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Text Editor</title>
   <style>
-    #textarea {
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+
+    #editor {
       position: absolute;
       top: 10px;
       left: 10px;
-      width: calc(100% - 10px);
-      min-height: calc(100% - 10px);
-      resize: none;
+      width: calc(100% - 20px);
+      min-height: calc(100% - 20px);
       background: none;
       font-size: 16px;
+      line-height: 1.4;
       padding: 0;
       margin: 0;
       border: 0;
@@ -22,144 +27,429 @@
       font-family: monospace, monospace;
       white-space: pre-wrap;
       box-sizing: border-box;
-      word-wrap: break-word;
-      field-sizing: content;
+      overflow-wrap: break-word;
+    }
+
+    /* Ghost completion lives OUTSIDE the editor so it can never
+       corrupt the editor's content, caret or native undo stack. */
+    #ghost {
+      position: fixed;
+      left: 0;
+      top: -1000px;
+      pointer-events: none;
+      user-select: none;
+      white-space: pre;
+      font-family: monospace, monospace;
+      font-size: 16px;
+      color: #9aa0a6;
+      background: rgba(154, 160, 166, 0.12);
+      border-radius: 3px;
+      display: none;
+      z-index: 10;
     }
   </style>
 </head>
 
 <body>
-  <p id="textarea" contenteditable="true"></p>
+  <div id="editor" contenteditable="true" spellcheck="false"></div>
+  <span id="ghost" aria-hidden="true"></span>
+
   <script>
-    function escapeHTML(text) {
-      let pre = document.createElement("pre");
-      pre.innerText = text;
-      return pre.innerHTML;
+    /* ------------------------------------------------------------------ *
+     *  Math engine: tokenizer + recursive descent parser                   *
+     *  supports  + - * / %  ^ (**)  ( )  unary -  n!                       *
+     *            abs(x)  |x|  sqrt(x)  cbrt(x)                             *
+     * ------------------------------------------------------------------ */
+
+    const FUNCTIONS = {
+      abs: Math.abs,
+      sqrt: Math.sqrt,
+      cbrt: Math.cbrt
+    };
+
+    const LANCZOS = [
+      676.5203681218851, -1259.1392167224028, 771.32342877765313,
+      -176.61502916214059, 12.507343278686905, -0.13857109526572012,
+      9.9843695780195716e-6, 1.5056327351493116e-7
+    ];
+
+    function gamma(z) {
+      if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * gamma(1 - z));
+      z -= 1;
+      let x = 0.99999999999980993;
+      for (let i = 0; i < LANCZOS.length; i++) x += LANCZOS[i] / (z + i + 1);
+      const t = z + LANCZOS.length - 0.5;
+      return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
     }
-    function parseMathParts(arr) {
-      // 1. parenthesis
-      console.log("Math helper recieved", arr)
-      let i = 0
-      while (i < arr.length) {
-        console.log("Parsing", arr[i], "Arr = ", arr)
-        if (arr[i] == "(") {
-          let startIdx = i
-          while (i < arr.length && arr[i] != ")") {
-            i++
-          }
-          let endIdx = i
-          if (i >= arr.length) console.warn("Closed an unclosed parenthesis")
-          arr = [
-            ...arr.slice(0,startIdx),
-            parseMathParts(arr.slice(startIdx, endIdx)),
-            ...arr.slice(endIdx, arr.length)
-          ]
-        } else {i++}
+
+    function factorial(n) {
+      if (Number.isInteger(n)) {
+        if (n < 0) throw new Error("Factorial of a negative integer");
+        if (n > 170) return Infinity;
+        let r = 1;
+        for (let k = 2; k <= n; k++) r *= k;
+        return r;
       }
-      // 2. exponentials
-      // 3. multiplication/division
-      // 4. addition/subtraction
-      let equations = [
-        (n,a,b) => (n=="^" || n=="**")?(a**b):null,
-        (n,a,b) => n=="/"?a/b:(n=="*"?a*b:null),
-        (n,a,b) => n=="-"?a-b:(n=="+"?a+b:null)
-      ]
-      for (let equationFn of equations) {
-        i = 0
-        while (i < arr.length) {
-          console.log("Parsing", arr[i], "Arr = ", arr)
-          let equationResult = equationFn(arr[i], arr[i-1], arr[i+1])
-          if (equationResult !== null) {
-            let result = equationResult
-            arr = [
-              ...arr.slice(0,i-1),
-              result,
-              ...arr.slice(i+2, arr.length)
-            ]
-            console.log("Parsed", arr[i], "Arr = ", arr)
-          } else {i++}
-        }
-      }
-      console.log("Arr = ", arr)
-      return arr
+      return gamma(n + 1); // n! == gamma(n + 1) for non integers
     }
-    function getMathParts(text) {
-      let splitParts = []
-      let i = 0
-      while (i < text.length) {
-        console.log("Trying " + text[i])
-        let currentNum = ""
-        while (i < text.length && /\d|\./.test(text[i])) {
-          currentNum += text[i]
-          i++
+
+    function tokenize(src) {
+      const tokens = [];
+      let i = 0;
+      while (i < src.length) {
+        const c = src[i];
+        if (/[ \t]/.test(c)) { i++; continue; }
+
+        if (/[0-9.]/.test(c)) {
+          const start = i;
+          while (i < src.length && /[0-9.]/.test(src[i])) i++;
+          const raw = src.slice(start, i);
+          const value = parseFloat(raw);
+          if (!isFinite(value)) throw new Error("Bad number: " + raw);
+          tokens.push({ type: "number", value });
+          continue;
         }
-        if (currentNum) {
-          splitParts.push(parseFloat(currentNum))
-          continue
+
+        if (/[a-z]/i.test(c)) {
+          const start = i;
+          while (i < src.length && /[a-z]/i.test(src[i])) i++;
+          const name = src.slice(start, i).toLowerCase();
+          if (!FUNCTIONS[name]) throw new Error("Unknown function: " + name);
+          tokens.push({ type: "func", value: name });
+          continue;
         }
-        let currentOperation = ""
-        while (i < text.length && /[+\-*\/^\(\)]/.test(text[i])) {
-          currentOperation += text[i]
-          i++
-        }
-        splitParts.push(currentOperation)
-        if (!currentOperation) throw "This should not happen"
+
+        if (src.startsWith("**", i)) { tokens.push({ type: "op", value: "^" }); i += 2; continue; }
+        if ("+-*/%^!|()".indexOf(c) !== -1) { tokens.push({ type: "op", value: c }); i++; continue; }
+
+        throw new Error("Unexpected character: " + c);
       }
-      return splitParts
+      return tokens;
     }
+
     function parseMath(text) {
-      if (/[^0-9+\-*\/^.\(\)]/.test(text)) throw "Invalid character in simple math parser"
-      return parseMathParts(getMathParts(text))
-    }
-    let currentSuggestion
-    textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Tab" && currentSuggestion) {
-        textarea.value = currentSuggestion
-        e.preventDefault()
-      }
-    })
-    function getCaretPosition(element) {
-      let position = -1
-      let selection = window.getSelection()
-      if (selection.rangeCount > 0) {
-        let range = selection.getRangeAt(0)
-        let cloneRange = range.cloneRange()
-        cloneRange.selectNodeContents(element)
-        cloneRange.setEnd(range.endContainer, range.endOffset)
-        position = cloneRange.toString().length
-      }
-      return position
-    }
-    function setCaretPosition(element, position) {
-      let selection = window.getSelection()
+      const tokens = tokenize(text);
+      let pos = 0;
 
-      range.setStart(textNode, position)
-      range.collapse(true)
+      const peek = () => tokens[pos];
+      const isOp = (v) => { const t = peek(); return t && t.type === "op" && t.value === v; };
+      const eat = (v) => { if (isOp(v)) { pos++; return true; } return false; };
 
-      selection.removeAllRanges()
-      selection.addRange(range)
-    }
-    function deleteAllHTML(html, query) {
-      let tempEl = document.createElement("pre")
-      tempEl.innerHTML = html
-      tempEl.querySelectorAll(query).forEach(e=>e.remove())
-      return tempEl.innerHTML
-    }
-    textarea.addEventListener("input", (e) => {
-      textarea.innerHTML = deleteAllHTML(textarea.innerHTML, "b")
-      let caretPos = getCaretPosition(textarea)
-      let plainText = textarea.innerText
-      currentSuggestion = null
-      let mathExpr = textarea.innerText.slice(0,caretPos).match(/([0-9]+[+\-*\/^.\(\)]*)+=$/)
-      console.log(mathExpr)
-      let extension = ""
-      if (mathExpr) {
-        mathExpr = mathExpr[0].replace("=", "")
-        let parts = getMathParts(mathExpr)
-        if (parts.length > 1) extension = parseMathParts(parts) 
+      // expression := term (("+" | "-") term)*
+      function parseExpression() {
+        let value = parseTerm();
+        while (isOp("+") || isOp("-")) {
+          const op = tokens[pos++].value;
+          const rhs = parseTerm();
+          value = op === "+" ? value + rhs : value - rhs;
+        }
+        return value;
       }
-      textarea.innerHTML = escapeHTML(plainText.slice(0,caretPos)) + "<b>TEST</b>" + escapeHTML(plainText.slice(caretPos+1, plainText.length))
+
+      // term := unary (("*" | "/" | "%") unary)*
+      function parseTerm() {
+        let value = parseUnary();
+        while (isOp("*") || isOp("/") || isOp("%")) {
+          const op = tokens[pos++].value;
+          const rhs = parseUnary();
+          if (op === "*") value *= rhs;
+          else if (op === "/") value /= rhs;
+          else value %= rhs;
+        }
+        return value;
+      }
+
+      // unary := ("+" | "-") unary | power
+      function parseUnary() {
+        if (isOp("-") || isOp("+")) {
+          const op = tokens[pos++].value;
+          const value = parseUnary();
+          return op === "-" ? -value : value;
+        }
+        return parsePower();
+      }
+
+      // power := postfix ("^" unary)?      (right associative, allows 2^-3)
+      function parsePower() {
+        const base = parsePostfix();
+        if (eat("^")) return Math.pow(base, parseUnary());
+        return base;
+      }
+
+      // postfix := primary "!"*
+      function parsePostfix() {
+        let value = parsePrimary();
+        while (eat("!")) value = factorial(value);
+        return value;
+      }
+
+      // primary := number | "(" expr ")" | "|" expr "|" | func "(" expr ")"
+      function parsePrimary() {
+        const t = peek();
+        if (!t) throw new Error("Unexpected end of expression");
+
+        if (t.type === "number") { pos++; return t.value; }
+
+        if (t.type === "func") {
+          pos++;
+          if (!eat("(")) throw new Error("Expected '(' after " + t.value);
+          const value = parseExpression();
+          if (!eat(")")) throw new Error("Missing ')'");
+          return FUNCTIONS[t.value](value);
+        }
+
+        if (isOp("(")) {
+          pos++;
+          const value = parseExpression();
+          if (!eat(")")) throw new Error("Missing ')'");
+          return value;
+        }
+
+        if (isOp("|")) {                       // |x| -> absolute value
+          pos++;
+          const value = parseExpression();
+          if (!eat("|")) throw new Error("Missing '|'");
+          return Math.abs(value);
+        }
+
+        throw new Error("Unexpected token: " + t.value);
+      }
+
+      const result = parseExpression();
+      if (pos < tokens.length) throw new Error("Unexpected token: " + tokens[pos].value);
+      return result;
+    }
+
+    function formatNumber(n) {
+      if (typeof n !== "number" || !isFinite(n)) return null;
+      // kills floating point noise: 0.1 + 0.2 = 0.3
+      return String(Number(n.toPrecision(12)));
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  Caret / text helpers (newline aware)                                *
+     *  Range.toString() ignores <br> and block breaks, which is exactly    *
+     *  why the old caret maths desynced after a newline.                   *
+     * ------------------------------------------------------------------ */
+
+    const editor = document.getElementById("editor");
+    const ghost = document.getElementById("ghost");
+
+    function isBlock(node) {
+      return node.nodeType === 1 && getComputedStyle(node).display !== "inline";
+    }
+
+    /** Plain text of `root` up to (node, offset), counting <br> / blocks as "\n". */
+    function getTextBefore(root, endNode, endOffset) {
+      let text = "";
+      let done = false;
+
+      (function walk(node) {
+        if (done) return;
+
+        if (node.nodeType === 3) {                       // text node
+          if (node === endNode) { text += node.data.slice(0, endOffset); done = true; }
+          else text += node.data;
+          return;
+        }
+
+        if (node.nodeName === "BR") {
+          if (node === endNode) { done = true; return; }
+          text += "\n";
+          return;
+        }
+
+        if (node !== root && isBlock(node) && text && !text.endsWith("\n")) text += "\n";
+
+        const children = node.childNodes;
+        const limit = node === endNode ? Math.min(endOffset, children.length) : children.length;
+        for (let i = 0; i < limit; i++) {
+          walk(children[i]);
+          if (done) return;
+        }
+        if (node === endNode) done = true;
+      })(root);
+
+      return text;
+    }
+
+    function getCaretRect() {
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return null;
+
+      const range = selection.getRangeAt(0).cloneRange();
+      range.collapse(false);
+
+      let rect = range.getClientRects()[0];
+      if (rect && rect.height) return rect;
+
+      // Collapsed ranges sometimes have no rect (start of a line, empty node):
+      // measure the character just before the caret instead.
+      const node = range.endContainer;
+      const offset = range.endOffset;
+      if (node.nodeType === 3 && offset > 0) {
+        const probe = document.createRange();
+        probe.setStart(node, offset - 1);
+        probe.setEnd(node, offset);
+        const rects = probe.getClientRects();
+        if (rects.length) {
+          const r = rects[rects.length - 1];
+          return { left: r.right, top: r.top, height: r.height };
+        }
+      }
+      const er = editor.getBoundingClientRect();
+      return { left: er.left, top: er.top, height: parseFloat(getComputedStyle(editor).lineHeight) || 20 };
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  Suggestion engine                                                   *
+     * ------------------------------------------------------------------ */
+
+    // Sections dismissed with Escape. Key = the document text in front of the
+    // section, so typing *inside* the section keeps it dismissed, while editing
+    // text before it starts a fresh section.
+    const dismissedSections = new Set();
+    let currentSuggestion = null;   // { text, key }
+
+    // digits, operators, bars, brackets and the three function names
+    const MATH_TAIL = /(?:abs|sqrt|cbrt|[0-9.+\-*/^%!|()[\] \t])+=$/i;
+
+    function computeSuggestion() {
+      const selection = window.getSelection();
+      if (!selection.rangeCount || !selection.isCollapsed) return null;
+      if (!editor.contains(selection.focusNode)) return null;
+
+      const before = getTextBefore(editor, selection.focusNode, selection.focusOffset);
+      if (!before.endsWith("=")) return null;
+
+      const match = before.match(MATH_TAIL);
+      if (!match) return null;
+
+      // Don't fire inside words like "x2+2=" or "labs("
+      const prevChar = before[match.index - 1];
+      if (prevChar && /[A-Za-z0-9_=]/.test(prevChar)) return null;
+
+      const expression = match[0].slice(0, -1).trim();
+      if (!/\d/.test(expression)) return null;                       // needs a number
+      if (!/[+\-*/^%!|]|abs|sqrt|cbrt/i.test(expression)) return null; // and something to do
+
+      const key = before.slice(0, before.length - match[0].length) + "\u0000" + expression.length;
+      const sectionKey = before.slice(0, before.length - match[0].length);
+      if (dismissedSections.has(sectionKey)) return null;
+
+      let value;
+      try {
+        value = parseMath(expression);
+      } catch (err) {
+        return null; // incomplete / invalid expression: stay quiet
+      }
+
+      const text = formatNumber(value);
+      if (text === null || text === expression) return null;
+
+      return { text, key: sectionKey };
+    }
+
+    function showGhost(text) {
+      const rect = getCaretRect();
+      if (!rect) { hideGhost(); return; }
+      ghost.textContent = text;
+      ghost.style.display = "block";
+      ghost.style.left = rect.left + "px";
+      ghost.style.top = rect.top + "px";
+      ghost.style.height = rect.height + "px";
+      ghost.style.lineHeight = rect.height + "px";
+    }
+
+    function hideGhost() {
+      ghost.style.display = "none";
+      ghost.textContent = "";
+    }
+
+    function updateSuggestion() {
+      currentSuggestion = computeSuggestion();
+      if (currentSuggestion) showGhost(currentSuggestion.text);
+      else hideGhost();
+    }
+
+    function acceptSuggestion() {
+      if (!currentSuggestion) return false;
+      const text = currentSuggestion.text;
+      currentSuggestion = null;
+      hideGhost();
+      // insertText goes through the browser's editing pipeline, so the whole
+      // insertion is a single, natively undoable / redoable step.
+      if (!document.execCommand("insertText", false, text)) {
+        const selection = window.getSelection();
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        range.collapse(false);
+      }
+      return true;
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  Events                                                              *
+     * ------------------------------------------------------------------ */
+
+    editor.addEventListener("keydown", (e) => {
+      // --- accept the completion -------------------------------------
+      if ((e.key === "Tab" || e.key === "Enter") && currentSuggestion && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        acceptSuggestion();
+        return;
+      }
+
+      // --- dismiss the completion ------------------------------------
+      if (e.key === "Escape" && currentSuggestion) {
+        e.preventDefault();
+        dismissedSections.add(currentSuggestion.key);
+        currentSuggestion = null;
+        hideGhost();
+        return;
+      }
+
+      // --- undo / redo through editing commands ----------------------
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
+        e.preventDefault();
+        document.execCommand("undo");
+        requestAnimationFrame(updateSuggestion);
+        return;
+      }
+      if (mod && ((e.key === "z" || e.key === "Z") && e.shiftKey || e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        document.execCommand("redo");
+        requestAnimationFrame(updateSuggestion);
+        return;
+      }
+
+      // --- plain newline: always a <br>, never a stray <div>/<p> ------
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (!document.execCommand("insertLineBreak")) {
+          document.execCommand("insertText", false, "\n");
+        }
+        requestAnimationFrame(updateSuggestion);
+      }
     });
+
+    // The editor's HTML is never rewritten anymore, so the caret (and the
+    // native undo stack) simply stay where the browser put them.
+    editor.addEventListener("input", updateSuggestion);
+    editor.addEventListener("click", updateSuggestion);
+    editor.addEventListener("keyup", updateSuggestion);
+    editor.addEventListener("blur", hideGhost);
+    editor.addEventListener("focus", updateSuggestion);
+
+    document.addEventListener("selectionchange", () => {
+      if (document.activeElement === editor) updateSuggestion();
+    });
+    window.addEventListener("scroll", () => { if (currentSuggestion) showGhost(currentSuggestion.text); }, true);
+    window.addEventListener("resize", () => { if (currentSuggestion) showGhost(currentSuggestion.text); });
+
+    editor.focus();
   </script>
 </body>
 
