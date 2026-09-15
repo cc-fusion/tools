@@ -59,6 +59,7 @@
      *  Math engine: tokenizer + recursive descent parser                   *
      *  supports  + - * / %  ^ (**)  ( )  unary -  n!                       *
      *            abs(x)  |x|  sqrt(x)  cbrt(x)                             *
+     *            implicit multiplication: 2(3), (2)(3), 2sqrt(4), 3!2 ...  *
      * ------------------------------------------------------------------ */
 
     const FUNCTIONS = {
@@ -135,6 +136,17 @@
       const isOp = (v) => { const t = peek(); return t && t.type === "op" && t.value === v; };
       const eat = (v) => { if (isOp(v)) { pos++; return true; } return false; };
 
+      // A new factor can start right here without an explicit operator in
+      // front of it - that's implicit multiplication: 2(3), (2)(3), 2sqrt(4),
+      // 3!2, |3|4, 2|3| ...
+      function startsImplicitFactor() {
+        const t = peek();
+        if (!t) return false;
+        if (t.type === "number" || t.type === "func") return true;
+        if (t.type === "op" && (t.value === "(" || t.value === "|")) return true;
+        return false;
+      }
+
       // expression := term (("+" | "-") term)*
       function parseExpression() {
         let value = parseTerm();
@@ -146,11 +158,12 @@
         return value;
       }
 
-      // term := unary (("*" | "/" | "%") unary)*
+      // term := unary (("*" | "/" | "%" | <implicit>) unary)*
       function parseTerm() {
         let value = parseUnary();
-        while (isOp("*") || isOp("/") || isOp("%")) {
-          const op = tokens[pos++].value;
+        while (isOp("*") || isOp("/") || isOp("%") || startsImplicitFactor()) {
+          let op = "*";
+          if (isOp("*") || isOp("/") || isOp("%")) op = tokens[pos++].value;
           const rhs = parseUnary();
           if (op === "*") value *= rhs;
           else if (op === "/") value /= rhs;
@@ -358,6 +371,10 @@
     // digits, operators, bars, brackets and the three function names
     const MATH_TAIL = /(?:abs|sqrt|cbrt|[0-9.+\-*/^%!|()[\] \t])+=$/i;
 
+    // What counts as "there's actually something to compute", now including
+    // implicit multiplication forms like "2(3)" that have no operator glyph.
+    const HAS_COMPUTATION = /[+\-*/^%!|]|abs|sqrt|cbrt|\)\s*\(|\d\s*\(|\)\s*\d|\)\s*[a-z]/i;
+
     function computeSuggestion() {
       const selection = window.getSelection();
       if (!selection.rangeCount || !selection.isCollapsed) return null;
@@ -388,8 +405,8 @@
       if (prevChar && /[A-Za-z0-9_]/.test(prevChar)) return null;
 
       const expression = matchStr.slice(0, -1).trim();
-      if (!/\d/.test(expression)) return null;                       // needs a number
-      if (!/[+\-*/^%!|]|abs|sqrt|cbrt/i.test(expression)) return null; // and something to do
+      if (!/\d/.test(expression)) return null;            // needs a number
+      if (!HAS_COMPUTATION.test(expression)) return null;  // and something to do
 
       const sectionKey = trimmedBefore.slice(0, matchIndex);
       if (dismissedSections.has(sectionKey)) return null;
