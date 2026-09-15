@@ -273,6 +273,45 @@
       return text;
     }
 
+    /** Plain text of `root` after (node, offset), counting <br> / blocks as "\n".
+     *  Used only to check whether the caret already has content right after
+     *  it, so a ghost suggestion never gets drawn on top of real text. */
+    function getTextAfter(root, startNode, startOffset) {
+      let text = "";
+      let capturing = false;
+
+      (function walk(node) {
+        if (node.nodeType === 3) {                       // text node
+          if (node === startNode) {
+            text += node.data.slice(startOffset);
+            capturing = true;
+          } else if (capturing) {
+            text += node.data;
+          }
+          return;
+        }
+
+        if (node.nodeName === "BR") {
+          if (node === startNode) { capturing = true; return; }
+          if (capturing) text += "\n";
+          return;
+        }
+
+        const isStartElement = node === startNode;
+        if (isStartElement) capturing = true;
+
+        if (capturing && node !== root && isBlock(node) && text && !text.endsWith("\n")) text += "\n";
+
+        const children = node.childNodes;
+        const start = isStartElement ? Math.min(startOffset, children.length) : 0;
+        for (let i = start; i < children.length; i++) {
+          walk(children[i]);
+        }
+      })(root);
+
+      return text;
+    }
+
     function getCaretRect() {
       const selection = window.getSelection();
       if (!selection.rangeCount) return null;
@@ -309,7 +348,12 @@
     // section, so typing *inside* the section keeps it dismissed, while editing
     // text before it starts a fresh section.
     const dismissedSections = new Set();
-    let currentSuggestion = null;   // { text, key }
+    let currentSuggestion = null;   // { text, key, before }
+
+    // The last suggestion we actually inserted into the document. If the user
+    // deletes it back down to exactly the state it was in right before
+    // insertion, we treat that as a dismissal instead of firing again.
+    let lastAccepted = null;        // { key, beforeText }
 
     // digits, operators, bars, brackets and the three function names
     const MATH_TAIL = /(?:abs|sqrt|cbrt|[0-9.+\-*/^%!|()[\] \t])+=$/i;
@@ -320,22 +364,49 @@
       if (!editor.contains(selection.focusNode)) return null;
 
       const before = getTextBefore(editor, selection.focusNode, selection.focusOffset);
-      if (!before.endsWith("=")) return null;
 
-      const match = before.match(MATH_TAIL);
+      // allow trailing spaces/tabs typed after the "=" before the caret
+      const trailingWs = (before.match(/[ \t]*$/) || [""])[0];
+      const trimmedBefore = before.slice(0, before.length - trailingWs.length);
+      if (!trimmedBefore.endsWith("=")) return null;
+
+      const match = trimmedBefore.match(MATH_TAIL);
       if (!match) return null;
 
-      // Don't fire inside words like "x2+2=" or "labs("
-      const prevChar = before[match.index - 1];
-      if (prevChar && /[A-Za-z0-9_=]/.test(prevChar)) return null;
+      // Leading whitespace captured by the match is just separation from
+      // whatever came before (e.g. "Text 1+1=") - it isn't part of the
+      // expression and shouldn't count when checking for "inside a word".
+      let matchStr = match[0];
+      let matchIndex = match.index;
+      const leadingWs = (matchStr.match(/^[ \t]*/) || [""])[0];
+      matchIndex += leadingWs.length;
+      matchStr = matchStr.slice(leadingWs.length);
 
-      const expression = match[0].slice(0, -1).trim();
+      // Don't fire inside words like "x2+2=" or "labs(". Note: "=" is
+      // intentionally allowed here so a chained "1+1=2+1=" keeps working.
+      const prevChar = trimmedBefore[matchIndex - 1];
+      if (prevChar && /[A-Za-z0-9_]/.test(prevChar)) return null;
+
+      const expression = matchStr.slice(0, -1).trim();
       if (!/\d/.test(expression)) return null;                       // needs a number
       if (!/[+\-*/^%!|]|abs|sqrt|cbrt/i.test(expression)) return null; // and something to do
 
-      const key = before.slice(0, before.length - match[0].length) + "\u0000" + expression.length;
-      const sectionKey = before.slice(0, before.length - match[0].length);
+      const sectionKey = trimmedBefore.slice(0, matchIndex);
       if (dismissedSections.has(sectionKey)) return null;
+
+      // If the user just deleted the suggestion we inserted here, treat it
+      // as dismissed instead of immediately suggesting it again.
+      if (lastAccepted && lastAccepted.key === sectionKey && before === lastAccepted.beforeText) {
+        dismissedSections.add(sectionKey);
+        lastAccepted = null;
+        return null;
+      }
+
+      // Never draw the ghost on top of (or redundantly in front of) text
+      // that already follows the caret on this line.
+      const after = getTextAfter(editor, selection.focusNode, selection.focusOffset);
+      const afterLine = after.split("\n")[0];
+      if (afterLine.trim().length > 0) return null;
 
       let value;
       try {
@@ -347,7 +418,7 @@
       const text = formatNumber(value);
       if (text === null || text === expression) return null;
 
-      return { text, key: sectionKey };
+      return { text, key: sectionKey, before };
     }
 
     function showGhost(text) {
@@ -375,6 +446,8 @@
     function acceptSuggestion() {
       if (!currentSuggestion) return false;
       const text = currentSuggestion.text;
+      const key = currentSuggestion.key;
+      const beforeText = currentSuggestion.before;
       currentSuggestion = null;
       hideGhost();
       // insertText goes through the browser's editing pipeline, so the whole
@@ -386,6 +459,7 @@
         range.insertNode(document.createTextNode(text));
         range.collapse(false);
       }
+      lastAccepted = { key, beforeText };
       return true;
     }
 
