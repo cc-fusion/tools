@@ -149,7 +149,7 @@
   <div class="main" id="main">
     <div id="editor"></div>
     <div class="resizer" id="resizer"></div>
-    <iframe id="preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads" title="Preview"></iframe>
+    <iframe id="preview" loading="lazy" importance="high" referrerpolicy="no-referrer-when-downgrade" credentialless csp="default-src 'self'; script-src 'unsafe-inline';" sandbox="allow-downloads allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocols" allow="accelerometer; ambient-light-sensor; autoplay; battery; camera; display-capture; document-domain; encrypted-media; execution-while-not-rendered; execution-while-out-of-viewport; fullscreen; gamepad; geolocation; gyroscope; hid; identity-credentials-get; idle-detection; local-fonts; magnetometer; microphone; midi; otp-credentials; payment; picture-in-picture; publickey-credentials-get; screen-wake-lock; serial; speaker-selection; usb; web-share; window-management; xr-spatial-tracking" allowfullscreen="true" allowpaymentrequest="true" title="Preview"></iframe>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
