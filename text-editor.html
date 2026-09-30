@@ -1,42 +1,395 @@
-sonnet 5.5
-<pre>```
-Using a single HTML file, create a fullscreen text editor with no extra title or UI aside from a bar on the bottom. Add inline autocomplete for math equations supporting +,-,*,/,%,^,**,!,support parenthesis,log,ln,log with bases (eg. log2, log_2), sqrt, cbrt, sin,cos,tan,csc,sec,cot (with inverses, eg. arcsin, asin, sin-1), nPr, nCr, constants like e, pi
-Autocomplete should appear on the bottom Example of syntaxes to autocomplete (autocompletes shown in quotes, add multiple autocompletes to the bottom bar):
-Basic math: 1+1"=2"
-Order of operations: 1*5+9="14"
-Recommend shorter: 1/97="0.01" "[longer version]"
-Recommend longer decimal in bottom bar (do not inline these) 1/97=0.01"03" "[longer version]"
-Do not recommend more decimals since it evaluates to 2 with no added decimal: 1+1=2
-Recommend radians first, degrees second: sin pi"=0" "=0.055"
-Still recommend radians first: sin 90 = "0.9" 
-tan(sin(3*log5(3)))**(sqrt(0.3) + sin 2pi)="[in radians]" "[in degrees]"
-```
-Also autocompletes type conversions from:
-grams (and all SI prefixes: quecto, ronto, yocto, zepto, atto, femto, pico, nano, micro, milli, centi, deci, deca, hecto, kilo, mega, giga, tera, peta, exa, zetta, yotta, ronna, quetta
-), ounces, pounds
-square foot, square meter, square kilometer, square mile, square yard, square inch, acre
-bits/bytes + all SI prefixes + optional per second
-Joule + prefixes, calories, watt hour + prefixes, 
-Hertz + prefixes
-miles per gallon, kilometers per liter
-mile, yard, foot, inch, meter + prefixes
-degrees to radians to gradians
-pascal + prefixes, bar + prefixes, atm, PSI
-mph, foot per second, m/s, kph, knot
-fahrenheight, Celsius, kelvin
-minutes, hours, days, weeks, years, decade, century, seconds + prefixes
-gallon, pint, quart, cup, tablespoon, teaspoon, cubic meter, liter + prefixes, cubic foot, cubic inch, fl oz
-watts + prefixes, HP
-Newtons
-amps + prefixes
+# Plan: Fullscreen Math and Unit Autocomplete Editor (single HTML file)
 
-Units should allow full name and shortened names to autocomplete. Examples:
-1g + 9kg ="9.001kg" "9001g"
-Do not autocomplete (doesn't work): 1kg + 5m =
-Ok to autocomplete: (5m + 16.4ft)/(0.04min + 2.6s) + 1 m/s = "4.333m/s" "[in mph]" "[in kph]"
-4mi * 3mi = "12mi^2" "[in other units]"
-3A * 2V = "6W"
-3 PSI / 1in^2 = 3 lbs.
-```
+I haven't written code yet. Below is the detailed plan, with **ambiguity blocks (❓)** where I found multiple reasonable readings. Each block has options and a **default** I'd pick. You can reply with just the numbers you want to change, e.g. "Q3 B, Q7 C, rest default."
 
-Make the plan idea more detailed and add some blocks clarifying ambiguity by giving multiple ideas to resolve. I will review the ambiguous parts.</pre>
+---
+
+## 0. Problems in the examples
+
+These affect the tests, so please check them first:
+
+| Your example | Issue |
+|---|---|
+| `(5m + 16.4ft)/(0.04min + 2.6s) + 1 m/s = "4.333m/s"` | I compute 5 m + 4.99872 m = 9.99872 m, and 2.4 s + 2.6 s = 5 s, so the ratio is 1.9997 m/s. Adding 1 m/s gives **≈ 2.9997 m/s (≈ "3m/s")**, not 4.333. I'll assume 4.333 was illustrative. |
+| `3 PSI / 1in^2 = 3 lbs` | PSI is lbf/in², so dividing by in² gives lbf/in⁴. Getting 3 lbf needs **multiplication** (`3 PSI * 1in^2`). See Q24. |
+| `3A * 2V = 6W` | **Volts** aren't in your unit list. I'll add volt (+ prefixes) and probably ohm. See Q23. |
+| "fahrenheight" | I'll accept "fahrenheit" and also the misspelling as an alias. |
+| `[longer version]`, `[in mph]`, `[in other units]` | I read the brackets as **placeholders for real computed values**, not literal text. |
+
+---
+
+## 1. Shell and layout
+
+- One `<textarea>` fills 100vw × 100vh with no border, outline, title, or toolbar. Only a thin **bottom bar** exists.
+- The bar holds suggestion "chips" and is empty when there are none.
+- Inline ghost text is drawn by a **mirror `<div>`** layered under or over a transparent-background textarea. It copies the textarea's font, padding, wrapping, and scroll position. The mirror contains the text before the caret, then a grey `<span>` with the ghost text.
+- Insertion uses `document.execCommand('insertText')` so native undo/redo keeps working. `setRangeText` is the fallback.
+- The theme follows `prefers-color-scheme`. The font is monospace.
+- Content autosaves to `localStorage`.
+
+> ❓ **Q1 – Ghost rendering technique**
+> - **A (default):** textarea + mirror div. Native editing and undo, and robust wrapping.
+> - **B:** `contenteditable` with an inline ghost `<span>`. Simpler visually, but caret, undo, and paste are quirkier.
+> - **C:** Fully custom canvas editor. Heavy, and it loses native accessibility.
+
+> ❓ **Q2 – Anything else in the bar?**
+> - **A (default):** Chips only, left-aligned.
+> - **B:** Chips plus a faint right-aligned `Ln/Col` or mode indicator.
+> - **C:** Chips plus a faint key hint (`Tab to accept`) when suggestions exist.
+
+> ❓ **Q3 – Tab when there's no suggestion**
+> - **A (default):** Insert a real tab (or 2 spaces).
+> - **B:** Let focus leave the page (the browser default).
+> - **C:** Do nothing.
+
+---
+
+## 2. Architecture (all in one `<script>`)
+
+1. **Expression finder** isolates the math expression ending at the caret.
+2. **Tokenizer** handles numbers, operators, identifiers, unit tokens, and implicit multiplication.
+3. **Parser** is a precedence-climbing parser that produces an AST.
+4. **Evaluator** works on `Quantity {value, dims[], unit info}`. Plain numbers are dimensionless quantities. It runs twice, in radians mode and degrees mode, only if a bare-number trig argument exists.
+5. **Unit engine** holds the unit table, prefix rules, dimension arithmetic, and derived-unit naming.
+6. **Formatter** handles the shortest-within-tolerance rounding and the longer-decimal ladder.
+7. **Suggestion engine** builds an ordered list of `{insertText, label, inlineEligible}`.
+8. **UI** covers the ghost, the chips, key handling, and click handling.
+
+---
+
+## 3. Finding the expression and deciding when to fire
+
+The ghost appears only when the caret is at the end of a line (or followed only by whitespace). Two shapes:
+
+- **No `=` typed:** the suggestion inserts `=result` (e.g. `1+1` → ghost `=2`).
+- **`=` typed:** the suggestion inserts only the remainder (e.g. `1*5+9=` → ghost `14`).
+- If the user typed a partial result (e.g. `=0.01`), suggestions are matched against it as a prefix and only the remainder is inserted.
+
+No suggestion fires for a lone literal like `5`. Constants (`pi`), functions, operators, and unit expressions do fire.
+
+> ❓ **Q4 – How to locate the start of the expression in prose like "Total is 1+1"**
+> - **A (default):** Longest valid suffix parse. Scan left from the caret and keep the longest token run that parses, so prose words are skipped automatically.
+> - **B:** The whole line must be an expression, with an optional `label:` prefix.
+> - **C:** The expression starts after the last of `:`, `,`, `;`, `=` or an unmatched `(`.
+
+> ❓ **Q5 – Spacing of inserted text**
+> - **A (default):** Mirror the user's style. `1 + 1` → ` = 2`, `1+1` → `=2`. Units follow the user's number/unit spacing (`5m` vs `5 m`).
+> - **B:** Always `= 2` and `9.001 kg`.
+> - **C:** Always compact: `=2`, `9.001kg`.
+
+> ❓ **Q6 – Typed result doesn't match any suggestion** (e.g. `1/97=0.02`)
+> - **A (default):** Show nothing.
+> - **B:** Show a chip that replaces the typed value with the correct one.
+
+> ❓ **Q7 – Should a bare unit quantity (`5km`) with no operator show conversions?**
+> - **A (default):** Yes, the bar shows conversions (`=3.11mi`, `=5000m`, …) and the inline ghost shows the first.
+> - **B:** Only when the user types `=`, `to`, or `in`.
+> - **C:** Only after `=`.
+
+---
+
+## 4. Math grammar and precedence
+
+Supported: `+ - * / % ^ ** !`, parentheses, `log`, `ln`, `log2`, `log_2`, `log5(3)`, `sqrt`, `cbrt`, `sin cos tan csc sec cot`, inverses (`arcsin`, `asin`, `sin-1`, `sin^-1`, `sin⁻¹`), `nPr`, `nCr`, and the constants `e`, `pi`/`π`. `^` and `**` are the same right-associative power operator. The default precedence is, from tightest to loosest: `!`, then `^`/`**`, then unary minus, then implicit multiplication, then `* / %`, then `+ -`.
+
+Function names autocomplete as you type (`sq` → ghost `rt(`).
+
+> ❓ **Q8 – What does bare `log` mean?**
+> - **A (default):** `log` = base 10, `ln` = natural, `logN` / `log_N` = base N.
+> - **B:** `log` = natural log (programming convention).
+> - **C:** Treat bare `log` as base 10, but show a second chip with the natural-log value.
+
+> ❓ **Q9 – What does `%` mean?**
+> - **A (default):** Context-dependent. Infix with a right operand (`10%3`) is modulo, and postfix (`50%`, `50%)`, `50%+1`) is percent (÷100).
+> - **B:** Always modulo.
+> - **C:** Modulo, with percent written as `50pct`.
+> - Follow-up: should `100 + 10%` mean 110 (spreadsheet style) or 100.1?
+
+> ❓ **Q10 – Function application without parentheses** (`sin 2pi`, `sin pi`)
+> - **A (default):** The argument is the following implicit-multiplication run. `sin 2pi` = sin(2π), but `sin 2 * 3` = (sin 2)·3.
+> - **B:** The argument is only the next atom. `sin 2pi` = (sin 2)·π.
+> - **C:** The argument runs to the end of the term, including `* /`. `sin 2*3` = sin 6.
+
+> ❓ **Q11 – Implicit multiplication versus division** (`1/2pi`)
+> - **A (default):** Implicit multiplication binds tighter, so 1/(2π). This matches how people write it.
+> - **B:** Strict left to right, so (1/2)·π.
+
+> ❓ **Q12 – Unary minus and power** (`-2^2`)
+> - **A (default):** −4 (standard math). `2^-1` is also allowed.
+> - **B:** +4 (calculator style).
+
+> ❓ **Q13 – Is `sin-1` the inverse or `sin` of −1?**
+> - **A (default):** `sin-1` is the inverse only when directly followed by `(` or a number with no space (`sin-1(0.5)`, `sin-1 0.5`). `sin -1` (with a space) and `sin(-1)` mean sine of negative one.
+> - **B:** `sin-1` is always the inverse, and only `sin(-1)` or `sin -1` is negation.
+> - **C:** Drop `sin-1` and support only `asin`, `arcsin`, `sin^-1`, `sin⁻¹`.
+
+> ❓ **Q14 – Factorial domain** (`!`)
+> - **A (default):** Non-negative integers up to 170. Non-integers use the gamma function. Anything else gives no suggestion.
+> - **B:** Integers only.
+> - Also: is `!!` (double factorial) wanted? Default is no.
+
+> ❓ **Q15 – nPr / nCr syntax**
+> - **A (default):** `nPr(5,2)`, `nCr(5,2)`, `5 nPr 2`, `5 nCr 2`, plus `P(5,2)` / `C(5,2)`.
+> - **B:** Also allow compact `5P2` and `5C2`. These risk clashing with units (P = peta, C = Celsius).
+> - **C:** Only the function form.
+
+> ❓ **Q16 – Constants**
+> - **A (default):** `e`, `pi`, `π`. `1e5` is scientific notation, and `2e` is 2·e.
+> - **B:** Also `tau`, `phi`.
+> - **C:** Also physical constants (`c`, `g`, `h`). These clash with the unit symbols cup, gram, and hour, so I'd avoid them.
+> - Note: `pi` also happens to be "pico-inch". Constants win, and inch takes no prefixes anyway (see Q20).
+
+> ❓ **Q17 – Invalid or complex results** (`sqrt(-1)`, `log(0)`, `asin(2)`, `0/0`, `tan(pi/2)`)
+> - **A (default):** Real numbers only. NaN or Infinity gives no suggestion, and values like 1e-16 snap to 0.
+> - **B:** Support complex numbers (`i`).
+> - **C:** Show a muted chip such as `undefined`.
+
+---
+
+## 5. Radians and degrees
+
+- If any trig function has a bare-number argument, evaluate in both modes. Radians is the first chip and degrees is the second.
+- Degree mode applies to the whole expression, as in your `tan(sin(…))**(…)` example.
+- The same applies to inverse trig outputs: `asin(0.5)` gives 0.5236 (rad), then 30 (deg).
+- Explicit angle units (`sin(30deg)`, `sin(30°)`, `sin(pi rad)`) produce a single result.
+- Duplicates are removed: `sin 0` shows one chip.
+- Example: `sin pi` gives `=0` (radians, since 1.2e-16 snaps to 0), then `=0.055` (degrees).
+- Example: `sin 90` gives `=0.9`, then `=1`.
+
+> ❓ **Q18 – Chip labeling for the two modes**
+> - **A (default):** Unlabeled, since the order is the signal. A faint `rad` / `deg` tag appears in each chip.
+> - **B:** Fully labeled chips (`= 0.9 rad`, `= 1 deg`). Inserted text stays clean.
+> - **C:** No labels at all.
+
+> ❓ **Q19 – Mixed explicit and bare angles** (`sin(30°) + cos(1)`)
+> - **A (default):** The bare `1` is still ambiguous, so two chips appear (rad and deg for the bare argument only).
+> - **B:** Once any explicit angle unit exists, treat all bare arguments as radians and show one chip.
+
+---
+
+## 6. Number formatting and the decimal ladder
+
+- **Arithmetic** uses JS doubles, cleaned to ~12 significant digits so `0.1+0.2` → `0.3`.
+- **Exactness test:** if the cleaned value is a terminating decimal, it is exact. It gets no "longer" chips (`1+1` → `=2` only).
+- **Inline ghost:** the shortest decimal rounding whose relative error is ≤ **5%**. Integers are never rounded. This fits all your examples:
+  - 1/97: 0.0103 → `0.01` (3%).
+  - sin 90°: 0.894 → `0.9` (0.7%).
+  - sin π°: 0.0548 → `0.055`, because `0.05` is 8.7% off.
+- **Longer ladder in the bar (never inline):** more precise versions at 3, 5, and 8 significant figures, deduplicated. For 1/97 these are `0.0103`, `0.010309`, `0.010309278`.
+- If the user typed `=0.01`, the bar chips show only the extra digits highlighted (`03`, …) and insert the remainder.
+- Very large or small values use scientific notation (≥1e15 or <1e-6).
+
+> ❓ **Q20a – Rounding rule for the inline value**
+> - **A (default):** Shortest decimal within 5% relative error.
+> - **B:** Fixed 2 significant figures. This contradicts your `0.9` example (it would give `0.89`).
+> - **C:** Fixed 3 decimal places.
+> - **D:** Tolerance of 1% (stricter). Then 1/97 → `0.0103`, which contradicts your `0.01` example.
+
+> ❓ **Q20b – Should inline approximations be marked?**
+> - **A (default):** No, plain `=0.01` as in your examples.
+> - **B:** Use `≈0.01` when rounded, `=2` when exact.
+
+> ❓ **Q20c – Precision and arithmetic engine**
+> - **A (default):** Doubles with 12-digit cleanup.
+> - **B:** BigInt rational arithmetic for exactness (true repeating-decimal detection). More code, and it only helps pure-arithmetic cases.
+> - **C:** Decimal.js-style arbitrary precision, hand-rolled. Overkill.
+
+---
+
+## 7. Units engine
+
+### Design
+
+- Each unit is stored as `{names[], symbols[], dims, factorToSI, offset?, prefixable: 'all' | 'large' | 'none'}`.
+- Dimension vector: length, mass, time, current, temperature, data, angle.
+- Symbols are **case-sensitive** (`m` ≠ `M`, `Mb` ≠ `MB`, `mB` ≠ `MB`). Full names are case-insensitive, with plurals and alternate spellings.
+- Prefix parsing is greedy, but an **exact base-unit match wins** over prefix+unit.
+- Unit names and symbols also autocomplete as you type (`5 kilo` → `gram`/`meter`/…).
+
+### Coverage
+
+- **Mass:** gram + all prefixes, ounce, pound.
+- **Area:** square foot/meter/kilometer/mile/yard/inch, acre. Also derived from `ft^2`, `ft²`, `sq ft`.
+- **Data:** bit and byte + prefixes, optionally per second (`Mbps`, `MB/s`).
+- **Energy:** joule + prefixes, calorie, watt-hour + prefixes.
+- **Frequency:** hertz + prefixes.
+- **Fuel economy:** mpg, km/L.
+- **Length:** mile, yard, foot, inch, meter + prefixes.
+- **Angle:** degree, radian, gradian.
+- **Pressure:** pascal + prefixes, bar + prefixes, atm, PSI.
+- **Speed:** mph, ft/s, m/s, kph, knot.
+- **Temperature:** °F, °C, K.
+- **Time:** second + prefixes, minute, hour, day, week, year, decade, century.
+- **Volume:** gallon, pint, quart, cup, tbsp, tsp, m³, liter + prefixes, ft³, in³, fl oz.
+- **Power:** watt + prefixes, HP.
+- **Force:** newton.
+- **Current:** ampere + prefixes.
+- Additions: volt, ohm, and lbf (see Q23 and Q24).
+
+### Arithmetic rules
+
+- `+` and `−` require equal dimensions, otherwise **no autocomplete at all** (`1kg + 5m =` is silent).
+- `*` and `/` combine dimension vectors.
+- `^` needs a dimensionless exponent, and fractional powers must give integer dimension exponents (`sqrt(4 m^2)` = 2 m).
+- Transcendental functions require dimensionless input, except trig, which takes angle or bare numbers.
+
+> ❓ **Q20 – Which units may take SI prefixes?** (this resolves most symbol clashes such as `mi`/`min`/`pt`/`yd`/`ft`/`ha`/`cd`)
+> - **A (default):** Only SI-style units take prefixes (g, m, s, Hz, J, Wh, cal, Pa, bar, L, W, A, V, N, Ω, B/b). Imperial, time-above-second, PSI, atm, etc. take none. Then `mi` is unambiguously miles, `min` is minutes, and `pt` is pint.
+> - **B:** Allow prefixes everywhere and disambiguate by dimensional context. More flexible, but far more ambiguity and false matches.
+> - **C:** A (default), plus prefixes on foot/inch/mile only when spelled out (e.g. "kilofoot").
+
+> ❓ **Q21 – Bits/bytes prefixes**
+> - **A (default):** Large prefixes only (k through Q), in SI (1000) steps. `mb` isn't "millibit".
+> - **B:** All 24 prefixes literally, including milli- and smaller (as your list says). Weird but literal.
+> - **C:** A, plus IEC binary prefixes (`KiB`, `MiB`, `GiB`, 1024-based) as extra chips or accepted input.
+
+> ❓ **Q22 – Regional and definitional variants**
+> - **Gallon/pint/quart/cup/fl oz:**
+>   - **A (default):** US customary. A `imp` or `uk` prefix selects imperial (`imp gal`).
+>   - **B:** Show both US and imperial chips for ambiguous names.
+> - **Calorie:**
+>   - **A (default):** `cal` = 4.184 J (thermochemical). `kcal` = 1000 cal. `Cal` = kcal (food).
+>   - **B:** 4.1868 J (International Table).
+> - **Year:**
+>   - **A (default):** 365.25 days (Julian). Decade is 10 years and century is 100.
+>   - **B:** 365 days.
+>   - **C:** 365.2425 days (Gregorian).
+> - **HP:**
+>   - **A (default):** mechanical, 745.7 W.
+>   - **B:** metric, 735.5 W.
+>   - **C:** Show both as chips.
+> - **Knot:** nautical mile per hour (1.852 km/h).
+
+> ❓ **Q23 – Derived unit naming** (`3A*2V` → `6W`)
+> - **A (default):** A lookup table of known combinations is applied only when the product or quotient of *different* units exactly matches a named derived unit (A·V → W, W·s → J, J/s → W, N/m² → Pa, 1/s → Hz, …). Otherwise the result stays compound (`12mi^2`, `kg·m/s²`). Also adds volt and ohm.
+> - **B:** Use the named unit only if you typed a unit whose dimension is its own (no auto-naming).
+> - **C:** Always try to name, even N·m → J. That is debatable, since N·m is also torque.
+
+> ❓ **Q24 – `3 PSI / 1in^2 = 3 lbs`**
+> - **A (default):** Treat it as a typo for `*`. `3 PSI * 1in^2` gives `=3lbf`, then `=13.3N`, then `=1.36kgf`. The division form gives `3lbf/in^4` (and conversions).
+> - **B:** Keep division literal and only output `lbf/in^4` forms.
+> - **C:** Loosely treat `lbs` as both mass and force.
+> - Note: "pounds" is mass (lb), while force is lbf. Should I add lbf as a separate force unit? Default: yes, and `lbs` stays mass.
+
+> ❓ **Q25 – Parsing `m/s` and other compound units after a number**
+> - **A (default):** After a number, a unit run continues through `/unit`, `*unit`, `·`, and `^n` only when the next token is a unit symbol and not a number. So `1 m/s` is one unit, `10 m / 2 s` is (10 m)/(2 s), and `3 PSI / 1in^2` divides quantities.
+> - **B:** Wrap compound units in parentheses to force grouping.
+> - **C:** Strict left-to-right with no special unit-run rule.
+
+> ❓ **Q26 – Exponent notation for units**
+> - **A (default):** Accept `m^2`, `m**2`, `m²`, `m2`, `sq m`, `square meter`, `meters squared`, `cubic meter`, `m³`. Output uses `^` (`12mi^2`), matching your example.
+> - **B:** Output uses Unicode superscripts (`12mi²`).
+
+> ❓ **Q27 – Temperature**
+> - **A (default):** Conversion only. A lone `20°C` converts to °F and K (affine offsets applied). `20°C + 5°C` is treated as adding a delta, result `25°C`. Multiplying or dividing absolute temperatures is disallowed.
+> - **B:** Convert only. Any arithmetic with temperatures is silent.
+> - **C:** Convert all to kelvin internally and treat everything as absolute.
+> - Also: allow the prefix on kelvin (`mK`)? Default: yes, kelvin only.
+
+> ❓ **Q28 – Unit plus bare number** (`5m + 3`, `5m * 3`)
+> - **A (default):** `+`/`−` invalid (silent), `*`/`/` fine.
+> - **B:** Assume the bare number has the other operand's unit.
+
+> ❓ **Q29 – Unit-name output style**
+> - **A (default):** Symbols in suggestions (`9.001kg`). Long names appear only when the user typed a long name (mirroring: `5 kilometers` → `3.11 miles`).
+> - **B:** Always symbols.
+> - **C:** Always long names.
+> - **D:** Symbols first, long-name chip second.
+
+---
+
+## 8. Suggestion ordering and the bar
+
+**Chip order:**
+1. Primary result in the chosen unit.
+2. Alternative units of the same dimension, from a curated per-dimension "popular units" list (e.g. for speed: mph, kph, ft/s, knot).
+3. Longer decimals of the primary (bar only, never inline).
+4. For trig, rad first, then deg, each with its own ladder.
+
+The inline ghost is always chip 1. Chips marked "bar-only" never become the ghost.
+
+> ❓ **Q30 – Which unit is the primary for mixed-unit results** (`1g + 9kg` → `9.001kg` first, `9001g` second)
+> - **A (default):** The unit giving a value in [1, 1000) (auto-prefix) first, then the operands' units, then other popular units. `1g+9kg` → kg, then g.
+> - **B:** The operand with the largest unit scale.
+> - **C:** The first operand's unit (`9001g`). This contradicts your example.
+> - **D:** The last-typed unit.
+
+> ❓ **Q31 – How many chips, and overflow?**
+> - **A (default):** Up to ~6 on one line, with a faint `+N` if truncated. Hotkeys cycle through the rest.
+> - **B:** Horizontally scrollable strip.
+> - **C:** The bar grows to two rows.
+> - **D:** Show all (could be many for areas or speeds).
+
+> ❓ **Q32 – "[in other units]" content** (e.g. `12mi^2`)
+> - **A (default):** A curated list per dimension (area: km², acre, ft², m², …).
+> - **B:** All units of that dimension, sorted by closeness to a "nice" magnitude.
+> - **C:** Only units the user has already typed somewhere earlier in the document.
+
+> ❓ **Q33 – Explicit conversion syntax**
+> - **A (default):** Also support `5 km to mi`, `5 km in miles`, `5km -> mi`, and autocomplete the target unit after `to` / `in`.
+> - **B:** Only implicit conversions in the bar (no keywords).
+
+> ❓ **Q34 – Variables and history**
+> - **A (default):** Not supported. Each expression is standalone.
+> - **B:** `ans` refers to the previous line's result.
+> - **C:** Full variables (`x = 5` on earlier lines).
+
+---
+
+## 9. Keyboard and mouse
+
+- **Tab** accepts the inline (first) suggestion.
+- **→** at end of line also accepts it.
+- **Esc** dismisses until the next keystroke.
+- Clicking a chip accepts it. `mousedown` calls `preventDefault` so the textarea keeps focus.
+- After accepting, the caret goes to the end of the inserted text, and the suggestion engine runs again so chips chain (accept `=0.01`, then the bar offers `03` longer versions).
+- Accepting never re-triggers a fresh "=" suggestion on the result.
+- No suggestion appears while an IME composition is active.
+
+> ❓ **Q35 – Accepting non-first chips by keyboard**
+> - **A (default):** `Alt+1…9` accepts chip *n*, and `Alt+←/→` or `↑/↓` moves a highlight.
+> - **B:** Repeated Tab cycles through chips, and Enter accepts.
+> - **C:** Mouse/tap only for non-first chips.
+
+> ❓ **Q36 – Mobile and touch**
+> - **A (default):** Chips are tappable, with a big enough hit area. No Tab key is required.
+> - **B:** Desktop only.
+
+---
+
+## 10. Safety and edge cases
+
+- Expression length cap, exponent and factorial magnitude caps, and a recursion depth cap, so the page can't hang.
+- All evaluation is a hand-written parser. **No `eval`.**
+- Evaluation is debounced (~30 ms) and skipped on IME composition and on selection ranges.
+- Ghost text is removed when the caret moves away from the line end or when text is selected.
+- Unicode normalization: `×`, `÷`, `−`, `π`, `µ` (micro sign) and `μ` (Greek mu) all work. `u` is an accepted alias for micro.
+- Scientific notation input (`1.5e3`) is supported.
+
+---
+
+## 11. Acceptance tests from your examples
+
+| Input | Expected |
+|---|---|
+| `1+1` | ghost `=2`, nothing longer |
+| `1*5+9=` | ghost `14` |
+| `1/97` | ghost `=0.01`, bar `=0.0103` `=0.010309` … |
+| `1/97=0.01` | no ghost, bar shows `03`, … |
+| `sin pi` | `=0` (rad), `=0.055` (deg) |
+| `sin 90 =` | `0.9`, then `1` |
+| `tan(sin(3*log5(3)))**(sqrt(0.3) + sin 2pi)` | rad value first, deg value second |
+| `1g + 9kg =` | `9.001kg`, `9001g` |
+| `1kg + 5m =` | nothing |
+| `(5m + 16.4ft)/(0.04min + 2.6s) + 1 m/s =` | `≈3m/s` (see Section 0), then mph, kph, … |
+| `4mi * 3mi =` | `12mi^2`, then km², acre, ft², … |
+| `3A * 2V =` | `6W`, then kW, HP, … |
+| `3 PSI * 1in^2 =` | `3lbf`, then N, … (pending Q24) |
+
+---
+
+## Suggested reply format
+
+> "Go with defaults except: Q8 B, Q22 Year C, Q24 B."
+
+Once you confirm, I'll build the full single-file implementation.
