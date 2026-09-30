@@ -1,3 +1,5 @@
+Build a complete single-file HTML/CSS/JavaScript implementation using the following instructions:
+
 ## 1. Shell and layout
 
 - One `<textarea>` fills 100vw × 100vh with no border, outline, title, or toolbar. Only a thin **bottom bar** exists.
