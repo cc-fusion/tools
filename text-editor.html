@@ -1,0 +1,35 @@
+sonnet 5.5
+<pre>```
+Using a single HTML file, create a fullscreen text editor with no extra title or UI aside from a bar on the bottom. Add inline autocomplete for math equations supporting +,-,*,/,%,^,**,!,support parenthesis,log,ln,log with bases (eg. log2, log_2), sqrt, cbrt, sin,cos,tan,csc,sec,cot (with inverses, eg. arcsin, asin, sin-1), nPr, nCr, constants like e, pi
+Autocomplete should appear on the bottom Example of syntaxes to autocomplete (autocompletes shown in quotes, add multiple autocompletes to the bottom bar):
+Basic math: 1+1"=2"
+Order of operations: 1*5+9="14"
+Recommend shorter: 1/97="0.01" "[longer version]"
+Recommend longer decimal in bottom bar (do not inline these) 1/97=0.01"03" "[longer version]"
+Do not recommend more decimals since it evaluates to 2 with no added decimal: 1+1=2
+Recommend radians first, degrees second: sin pi"=0" "=0.055"
+Still recommend radians first: sin 90 = "0.9" 
+tan(sin(3*log5(3)))**(sqrt(0.3) + sin 2pi)="[in radians]" "[in degrees]"
+```
+Also autocompletes type conversions from:
+grams (and all SI prefixes: quecto, ronto, yocto, zepto, atto, femto, pico, nano, micro, milli, centi, deci, deca, hecto, kilo, mega, giga, tera, peta, exa, zetta, yotta, ronna, quetta
+), ounces, pounds
+square foot, square meter, square kilometer, square mile, square yard, square inch, acre
+bits/bytes + all SI prefixes + optional per second
+Joule + prefixes, calories, watt hour + prefixes, 
+Hertz + prefixes
+miles per gallon, kilometers per liter
+mile, yard, foot, inch, meter + prefixes
+degrees to radians to gradians
+pascal + prefixes, bar + prefixes, atm, PSI
+mph, foot per second, m/s, kph, knot
+fahrenheight, Celsius, kelvin
+minutes, hours, days, weeks, years, decade, century, seconds + prefixes
+gallon, pint, quart, cup, tablespoon, teaspoon, cubic meter, liter + prefixes, cubic foot, cubic inch, fl oz
+watts + prefixes, HP
+Newtons
+amps + prefixes
+
+Units should allow full name and shortened names. Examples:
+
+Make the plan idea more detailed and add some blocks clarifying ambiguity by giving multiple ideas to resolve. I will review the ambiguous parts.</pre>
