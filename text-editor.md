@@ -1,4 +1,4 @@
-Build a complete single-file HTML/CSS/JavaScript implementation using the following instructions:
+Build a complete single-file HTML/CSS/JavaScript implementation using the following instructions. CDN dependencies are acceptable.
 
 ## 1. Shell and layout
 
