@@ -30,6 +30,13 @@ watts + prefixes, HP
 Newtons
 amps + prefixes
 
-Units should allow full name and shortened names. Examples:
+Units should allow full name and shortened names to autocomplete. Examples:
+1g + 9kg ="9.001kg" "9001g"
+Do not autocomplete (doesn't work): 1kg + 5m =
+Ok to autocomplete: (5m + 16.4ft)/(0.04min + 2.6s) + 1 m/s = "4.333m/s" "[in mph]" "[in kph]"
+4mi * 3mi = "12mi^2" "[in other units]"
+3A * 2V = "6W"
+3 PSI / 1in^2 = 3 lbs.
+```
 
 Make the plan idea more detailed and add some blocks clarifying ambiguity by giving multiple ideas to resolve. I will review the ambiguous parts.</pre>
