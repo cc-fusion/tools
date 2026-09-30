@@ -1,3 +1,17 @@
+My Tests:
+1+1
+5(5)
+11.7 + 79.9
+sin(90)
+sin(sin(sin(sin(sin(100))))) = -0.43
+1g + 2g
+1g + 1kg
+67PSI * 4in^2 = 1192 N
+(3m + 1km)/(1s + 1min/6) + 1m/s
+408-555-1234
+7/3/2026
+- 5+5
+
 Build a complete single-file HTML/CSS/JavaScript implementation using the following instructions. CDN dependencies are acceptable.
 
 ## 1. Shell and layout
