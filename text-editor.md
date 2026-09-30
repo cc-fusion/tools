@@ -388,3 +388,13 @@ Other things
 - "Exact" means terminating with ≤ 20 significant digits.
 - Scientific notation applies to exact values too (≥ 1e15 or < 1e-6).
 - One exception: a lone `50%` should not fire.
+
+## Build plan:
+
+1. Shell and UI: Full-screen textarea, mirror ghost, chip bar, autosave, theme, and keyboard and mouse handling. It also includes the line analyzer's front half (caret preconditions, bullet stripping, = segmentation, typed partial results) and the real inline and ladder formatter. A deliberately tiny placeholder evaluator, number op number, sits behind it so the UI can be exercised.
+2. Tokenizer, parser and evaluator. Precedence-climbing parser, Decimal quantities, functions, constants, %, !, nPr/nCr, and silent failures.
+3. Line analyzer: Longest-valid-suffix search, classification (lone literal, phone/date, bullet), and the Ne-N ambiguity.
+4. Formatter completion and rad/deg. Scientific notation, cleaning, and dual-mode trig with tags.
+5. Units engine. Unit table, prefixes, dimensions, derived names, and the case-folded resolver.
+6. Unit suggestions and name autocomplete. Alternate-unit chips, conversions, and autocomplete.
+7. Polish and acceptance tests.
