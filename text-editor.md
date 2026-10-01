@@ -12,7 +12,7 @@ sin(sin(sin(sin(sin(100))))) = -0.43
 7/3/2026
 - 5+5
 
-Build a complete single-file HTML/CSS/JavaScript implementation using the following instructions. CDN dependencies are acceptable.
+Build a complete HTML/CSS/JavaScript implementation using the following instructions. CDN dependencies are acceptable.
 
 ## 1. Shell and layout
 
