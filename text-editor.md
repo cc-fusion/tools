@@ -395,3 +395,18 @@ Other things
 2. Line analyzer: Longest-valid-suffix search, classification (lone literal, phone/date, bullet), and the Ne-N ambiguity. Formatter completion and rad/deg. Scientific notation, cleaning, and dual-mode trig with tags.
 3. Units engine. Unit table, prefixes, dimensions, derived names, and the case-folded resolver. Unit suggestions and name autocomplete. Alternate-unit chips, conversions, and autocomplete.
 4. Polish and acceptance tests.
+
+Let tabs autocomplete the current tab selection even when the suggestion is not inline
+Don't autocomplete functions or units in the examples (autocomplete shown in quotes):
+- si"n("
+- ar"ccos("
+- 3 cel"cius"
+Ok to autocomplete (inline autocomplete shown in quotes, cells shown in single quotes):
+- 3 celsius to f"ahrenheit = 37.4 fahrenheit"
+- 3 celcius to `fahrenheit` `kelvin`
+- 1kg to `lbs = 2.2lbs` `g = 1000g` `oz = 35.3oz`
+- pi = 3.1"4"`41` etc...
+- pi = 3.14"15"`159` etc...
+Autocomplete constants like pi and e with more precision (pi as 3.14159, e as 2.71828)
+Allow for more precision (eg. keep giving inline autocompletion after pi = 3.1415927 or after sin(pi/4)=0.7071)
+Save the radian/degrees suggestion, if the user last picked radians, inline suggest radians, if the user last picked degrees, inline suggest degrees
