@@ -410,3 +410,9 @@ Ok to autocomplete (inline autocomplete shown in quotes, cells shown in single q
 Autocomplete constants like pi and e with more precision (pi as 3.14159, e as 2.71828)
 Allow for more precision (eg. keep giving inline autocompletion after pi = 3.1415927 or after sin(pi/4)=0.7071)
 Save the radian/degrees suggestion, if the user last picked radians, inline suggest radians, if the user last picked degrees, inline suggest degrees
+
+
+
+
+
+Remove the enter keybind entirely
