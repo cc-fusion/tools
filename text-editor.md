@@ -417,3 +417,4 @@ Save the radian/degrees suggestion, if the user last picked radians, inline sugg
 
 Remove the enter keybind entirely
 Need conversions with torr, atm, Pa, psi, mmHg, inHg, 
+need to inline "2c to k ="
