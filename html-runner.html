@@ -103,7 +103,7 @@
     .main {
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 5px 1fr;
+      grid-template-columns: minmax(0, 1fr) 5px minmax(0, 1fr);
       min-height: 0;
     }
 
@@ -114,14 +114,32 @@
     }
 
     .resizer {
+      position: relative;
+      z-index: 2;
       background: var(--resizer);
       cursor: col-resize;
       user-select: none;
+      touch-action: none;
+    }
+
+    .resizer::before {
+      content: '';
+      position: absolute;
+      inset: 0 -4px;
     }
 
     .resizer:hover,
     .resizer.active {
       background: var(--resizer-hover);
+    }
+
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    body.resizing #preview {
+      pointer-events: none;
     }
 
     #preview {
@@ -156,6 +174,8 @@
   <script>
     const STORAGE_KEY = 'html-compiler-code';
     const THEME_KEY = 'html-compiler-theme';
+    const SPLIT_KEY = 'html-compiler-split';
+    const MIN_PANE = 120;
     const DEFAULT_CODE = `<!DOCTYPE html>
 <html>
 <head>
@@ -189,6 +209,52 @@
     }
 
     applyTheme(localStorage.getItem(THEME_KEY) || systemTheme());
+
+    const main = document.getElementById('main');
+    const resizer = document.getElementById('resizer');
+    let splitRatio = 0.5;
+    let resizing = false;
+
+    function applySplit(ratio) {
+      const rect = main.getBoundingClientRect();
+      const minRatio = rect.width > 0 ? MIN_PANE / rect.width : 0.15;
+      const maxRatio = 1 - minRatio;
+      splitRatio = Math.min(maxRatio, Math.max(minRatio, ratio));
+      main.style.gridTemplateColumns =
+        `minmax(0, ${splitRatio}fr) 5px minmax(0, ${1 - splitRatio}fr)`;
+    }
+
+    const savedSplit = parseFloat(localStorage.getItem(SPLIT_KEY));
+    applySplit(Number.isFinite(savedSplit) ? savedSplit : 0.5);
+
+    function endResize() {
+      if (!resizing) return;
+      resizing = false;
+      resizer.classList.remove('active');
+      document.body.classList.remove('resizing');
+      localStorage.setItem(SPLIT_KEY, String(splitRatio));
+    }
+
+    resizer.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      resizing = true;
+      resizer.classList.add('active');
+      document.body.classList.add('resizing');
+      resizer.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+
+    resizer.addEventListener('pointermove', function (e) {
+      if (!resizing) return;
+      const rect = main.getBoundingClientRect();
+      applySplit((e.clientX - rect.left) / rect.width);
+    });
+
+    resizer.addEventListener('pointerup', endResize);
+    resizer.addEventListener('pointercancel', endResize);
+    window.addEventListener('resize', function () {
+      applySplit(splitRatio);
+    });
 
     window.MonacoEnvironment = {
       getWorkerUrl: function () {
