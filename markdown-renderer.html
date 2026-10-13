@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Markdown + KaTeX Compiler</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #1a1a1a;
+      --toolbar: #f6f6f6;
+      --border: #e5e5e5;
+      --btn: #111111;
+      --btn-fg: #ffffff;
+      --ghost: transparent;
+      --ghost-hover: #ececec;
+      --resizer: #e5e5e5;
+      --resizer-hover: #c8c8c8;
+      --switch-bg: #eaeaea;
+      --switch-active: #ffffff;
+      --switch-shadow: rgba(0, 0, 0, 0.08);
+    }
+
+    html[data-theme="dark"] {
+      --bg: #1e1e1e;
+      --fg: #d4d4d4;
+      --toolbar: #252526;
+      --border: #2b2b2b;
+      --btn: #f0f0f0;
+      --btn-fg: #111111;
+      --ghost: transparent;
+      --ghost-hover: #333333;
+      --resizer: #2b2b2b;
+      --resizer-hover: #4a4a4a;
+      --switch-bg: #141414;
+      --switch-active: #2d2d2d;
+      --switch-shadow: rgba(0, 0, 0, 0.4);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 44px;
+      padding: 0 10px;
+      background: var(--toolbar);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* Segmented switch control */
+    .view-switch {
+      display: inline-flex;
+      background: var(--switch-bg);
+      padding: 3px;
+      border-radius: 7px;
+      gap: 2px;
+      border: 1px solid var(--border);
+    }
+
+    .view-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--fg);
+      opacity: 0.7;
+      height: 24px;
+      padding: 0 12px;
+      border-radius: 5px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+
+    .view-btn:hover {
+      opacity: 1;
+    }
+
+    .view-btn.active {
+      background: var(--switch-active);
+      color: var(--fg);
+      opacity: 1;
+      font-weight: 600;
+      box-shadow: 0 1px 3px var(--switch-shadow);
+    }
+
+    #theme {
+      appearance: none;
+      border: none;
+      background: var(--ghost);
+      color: var(--fg);
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    #theme:hover { background: var(--ghost-hover); }
+    #theme svg { width: 16px; height: 16px; display: block; }
+    html[data-theme="light"] #theme .sun { display: none; }
+    html[data-theme="dark"] #theme .moon { display: none; }
+
+    .view-btn:focus-visible,
+    #theme:focus-visible {
+      outline: 2px solid var(--btn);
+      outline-offset: 2px;
+    }
+
+    .main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 5px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    #editor {
+      min-width: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .resizer {
+      position: relative;
+      z-index: 2;
+      background: var(--resizer);
+      cursor: col-resize;
+      user-select: none;
+      touch-action: none;
+    }
+
+    .resizer::before {
+      content: '';
+      position: absolute;
+      inset: 0 -4px;
+    }
+
+    .resizer:hover,
+    .resizer.active {
+      background: var(--resizer-hover);
+    }
+
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    body.resizing #right-pane {
+      pointer-events: none;
+    }
+
+    #right-pane {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    #preview {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: var(--bg);
+      display: block;
+    }
+
+    #html-viewer {
+      width: 100%;
+      height: 100%;
+      display: none;
+      min-width: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="view-switch" role="tablist" aria-label="Output View">
+      <button id="btn-preview" class="view-btn active" type="button" role="tab" aria-selected="true">Preview</button>
+      <button id="btn-html" class="view-btn" type="button" role="tab" aria-selected="false">HTML</button>
+    </div>
+
+    <button id="theme" type="button" aria-label="Toggle theme">
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="main" id="main">
+    <div id="editor"></div>
+    <div class="resizer" id="resizer"></div>
+    <div id="right-pane">
+      <iframe id="preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" title="Preview"></iframe>
+      <div id="html-viewer"></div>
+    </div>
+  </div>
+
+  <!-- 1. Load UMD libraries BEFORE Monaco AMD loader to prevent anonymous define() conflicts -->
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.6/lib/marked.umd.js"></script>
+
+  <!-- 2. Monaco AMD loader -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+
+  <script>
+    const STORAGE_KEY = 'md-katex-compiler-code';
+    const THEME_KEY = 'md-katex-compiler-theme';
+    const SPLIT_KEY = 'md-katex-compiler-split';
+    const VIEW_KEY = 'md-katex-compiler-view';
+    const MIN_PANE = 120;
+
+    // DOM Elements
+    const main = document.getElementById('main');
+    const resizer = document.getElementById('resizer');
+    const preview = document.getElementById('preview');
+    const htmlViewer = document.getElementById('html-viewer');
+    const btnPreview = document.getElementById('btn-preview');
+    const btnHtml = document.getElementById('btn-html');
+    const themeBtn = document.getElementById('theme');
+
+    let htmlEditorInstance = null;
+    let currentParsedHtml = '';
+
+    const DEFAULT_CODE = `# Markdown + KaTeX Renderer
+
+A fast side-by-side Markdown editor with native LaTeX math, code highlighting, and theme synchronization.
+
+---
+
+## 1. Mathematical Formulas with KaTeX
+
+Inline equations are written with \`$ ... $\`:
+- Mass-energy equivalence: $E = mc^2$
+- Quadratic formula: $x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$
+- Determinant: $\\det(\\mathbf{A} - \\lambda \\mathbf{I}) = 0$
+
+Display math blocks use \`$$ ... $$\`:
+
+$$
+\\int_{-\\infty}^{\\infty} e^{-x^2} \\, dx = \\sqrt{\\pi}
+$$
+
+Maxwell's equations in differential form:
+
+$$
+\\begin{aligned}
+\\nabla \\cdot \\mathbf{E} &= \\frac{\\rho}{\\varepsilon_0} \\\\
+\\nabla \\cdot \\mathbf{B} &= 0 \\\\
+\\nabla \\times \\mathbf{E} &= -\\frac{\\partial \\mathbf{B}}{\\partial t} \\\\
+\\nabla \\times \\mathbf{B} &= \\mu_0 \\mathbf{J} + \\mu_0 \\varepsilon_0 \\frac{\\partial \\mathbf{E}}{\\partial t}
+\\end{aligned}
+$$
+
+---
+
+## 2. Syntax-Highlighted Code
+
+\`\`\`python
+import numpy as np
+
+def fourier_transform(signal, dt):
+    """Calculates FFT and corresponding frequency bins."""
+    n = len(signal)
+    freqs = np.fft.fftfreq(n, d=dt)
+    fft_vals = np.fft.fft(signal)
+    return freqs, np.abs(fft_vals)
+\`\`\`
+
+---
+
+## 3. Formatting & Tables
+
+| Feature | Notation | Status |
+| :--- | :--- | :---: |
+| Inline Math | \`$f(x)$\` | **Ready** |
+| Block Math | \`$$...$$\` | **Ready** |
+| Code Highlight | \`\`\`language | **Ready** |
+| Live Switch | Preview &harr; HTML | **Active** |
+
+> "Mathematics is the language in which God has written the universe."  
+> — *Galileo Galilei*
+`;
+
+    // Helpers
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function systemTheme() {
+      return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function currentTheme() {
+      return document.documentElement.getAttribute('data-theme') || systemTheme();
+    }
+
+    function updatePreviewTheme(theme) {
+      if (!preview) return;
+      try {
+        const doc = preview.contentDocument || (preview.contentWindow && preview.contentWindow.document);
+        if (doc && doc.documentElement) {
+          doc.documentElement.setAttribute('data-theme', theme);
+          doc.documentElement.style.colorScheme = theme;
+          const hljsTheme = doc.getElementById('hljs-theme');
+          if (hljsTheme) {
+            hljsTheme.href = theme === 'dark'
+              ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css'
+              : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css';
+          }
+        }
+      } catch (_) {}
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem(THEME_KEY, theme);
+      if (window.monaco && window.monaco.editor) {
+        window.monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+      }
+      updatePreviewTheme(theme);
+    }
+
+    applyTheme(localStorage.getItem(THEME_KEY) || systemTheme());
+
+    // Switch View Mode: Preview vs HTML
+    function setView(view) {
+      localStorage.setItem(VIEW_KEY, view);
+      if (view === 'html') {
+        preview.style.display = 'none';
+        htmlViewer.style.display = 'block';
+        btnHtml.classList.add('active');
+        btnHtml.setAttribute('aria-selected', 'true');
+        btnPreview.classList.remove('active');
+        btnPreview.setAttribute('aria-selected', 'false');
+        if (htmlEditorInstance) {
+          htmlEditorInstance.layout();
+        }
+      } else {
+        htmlViewer.style.display = 'none';
+        preview.style.display = 'block';
+        btnPreview.classList.add('active');
+        btnPreview.setAttribute('aria-selected', 'true');
+        btnHtml.classList.remove('active');
+        btnHtml.setAttribute('aria-selected', 'false');
+      }
+    }
+
+    btnPreview.addEventListener('click', () => setView('preview'));
+    btnHtml.addEventListener('click', () => setView('html'));
+
+    // Split Pane Resizing
+    let splitRatio = 0.5;
+    let resizing = false;
+
+    function applySplit(ratio) {
+      const rect = main.getBoundingClientRect();
+      const minRatio = rect.width > 0 ? MIN_PANE / rect.width : 0.15;
+      const maxRatio = 1 - minRatio;
+      splitRatio = Math.min(maxRatio, Math.max(minRatio, ratio));
+      main.style.gridTemplateColumns =
+        `minmax(0, ${splitRatio}fr) 5px minmax(0, ${1 - splitRatio}fr)`;
+    }
+
+    const savedSplit = parseFloat(localStorage.getItem(SPLIT_KEY));
+    applySplit(Number.isFinite(savedSplit) ? savedSplit : 0.5);
+
+    function endResize() {
+      if (!resizing) return;
+      resizing = false;
+      resizer.classList.remove('active');
+      document.body.classList.remove('resizing');
+      localStorage.setItem(SPLIT_KEY, String(splitRatio));
+      if (htmlEditorInstance) htmlEditorInstance.layout();
+    }
+
+    resizer.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      resizing = true;
+      resizer.classList.add('active');
+      document.body.classList.add('resizing');
+      resizer.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+
+    resizer.addEventListener('pointermove', function (e) {
+      if (!resizing) return;
+      const rect = main.getBoundingClientRect();
+      applySplit((e.clientX - rect.left) / rect.width);
+    });
+
+    resizer.addEventListener('pointerup', endResize);
+    resizer.addEventListener('pointercancel', endResize);
+    window.addEventListener('resize', () => {
+      applySplit(splitRatio);
+      if (htmlEditorInstance) htmlEditorInstance.layout();
+    });
+
+    // Marked Extensions for KaTeX Math
+    const blockMathExtension = {
+      name: 'blockMath',
+      level: 'block',
+      start(src) {
+        const idx1 = src.indexOf('$$');
+        const idx2 = src.indexOf('\\[');
+        if (idx1 === -1) return idx2;
+        if (idx2 === -1) return idx1;
+        return Math.min(idx1, idx2);
+      },
+      tokenizer(src) {
+        if (src.startsWith('\\[')) {
+          const end = src.indexOf('\\]');
+          if (end !== -1) {
+            return {
+              type: 'blockMath',
+              raw: src.slice(0, end + 2),
+              text: src.slice(2, end).trim()
+            };
+          }
+        }
+        if (src.startsWith('$$')) {
+          const end = src.indexOf('$$', 2);
+          if (end !== -1) {
+            return {
+              type: 'blockMath',
+              raw: src.slice(0, end + 2),
+              text: src.slice(2, end).trim()
+            };
+          }
+        }
+      },
+      renderer(token) {
+        try {
+          return '<div class="katex-block">' +
+            katex.renderToString(token.text, { displayMode: true, throwOnError: false }) +
+            '</div>\n';
+        } catch (e) {
+          return '<div class="katex-error">' + escapeHtml(e.message) + '</div>\n';
+        }
+      }
+    };
+
+    const inlineMathExtension = {
+      name: 'inlineMath',
+      level: 'inline',
+      start(src) {
+        const idx1 = src.indexOf('$');
+        const idx2 = src.indexOf('\\(');
+        if (idx1 === -1) return idx2;
+        if (idx2 === -1) return idx1;
+        return Math.min(idx1, idx2);
+      },
+      tokenizer(src) {
+        if (src.startsWith('\\(')) {
+          const end = src.indexOf('\\)');
+          if (end !== -1) {
+            return {
+              type: 'inlineMath',
+              raw: src.slice(0, end + 2),
+              text: src.slice(2, end).trim()
+            };
+          }
+        }
+        if (src.startsWith('$') && !src.startsWith('$$')) {
+          const match = src.match(/^\$((?:\\\$|[^\s\$])(?:\\\$|[^\$\n])*?[^\s\$])\$|^\$([^\s\$\n])\$/);
+          if (match) {
+            return {
+              type: 'inlineMath',
+              raw: match[0],
+              text: (match[1] || match[2]).trim()
+            };
+          }
+        }
+      },
+      renderer(token) {
+        try {
+          return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
+        } catch (e) {
+          return '<span class="katex-error">' + escapeHtml(e.message) + '</span>';
+        }
+      }
+    };
+
+    marked.use({
+      gfm: true,
+      breaks: true,
+      extensions: [blockMathExtension, inlineMathExtension],
+      renderer: {
+        code(tokenOrText, infoString) {
+          const text = (typeof tokenOrText === 'object' && tokenOrText !== null) ? tokenOrText.text : tokenOrText;
+          const lang = ((typeof tokenOrText === 'object' && tokenOrText !== null) ? tokenOrText.lang : infoString) || '';
+          const cleanLang = lang.trim().split(/\s+/)[0];
+
+          let highlighted;
+          if (cleanLang && typeof hljs !== 'undefined' && hljs.getLanguage(cleanLang)) {
+            try {
+              highlighted = hljs.highlight(text, { language: cleanLang, ignoreIllegals: true }).value;
+            } catch (_) {
+              highlighted = escapeHtml(text);
+            }
+          } else if (typeof hljs !== 'undefined') {
+            try {
+              highlighted = hljs.highlightAuto(text).value;
+            } catch (_) {
+              highlighted = escapeHtml(text);
+            }
+          } else {
+            highlighted = escapeHtml(text);
+          }
+
+          const langClass = cleanLang ? ` class="hljs language-${cleanLang}"` : ' class="hljs"';
+          return `<pre><code${langClass}>${highlighted}</code></pre>\n`;
+        }
+      }
+    });
+
+    function buildFrameDoc(contentHtml, theme) {
+      return `<!DOCTYPE html>
+<html lang="en" data-theme="${theme}">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.8.1/github-markdown.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/${theme === 'dark' ? 'github-dark' : 'github'}.min.css" id="hljs-theme">
+  <style>
+    :root {
+      color-scheme: ${theme};
+      --bg-color: ${theme === 'dark' ? '#1e1e1e' : '#ffffff'};
+      --fg-color: ${theme === 'dark' ? '#d4d4d4' : '#1f2328'};
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-color);
+      color: var(--fg-color);
+    }
+    body {
+      padding: 28px 36px;
+    }
+    .markdown-body {
+      max-width: 880px;
+      margin: 0 auto;
+      background: transparent !important;
+      color: inherit;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    }
+    html[data-theme="dark"] .markdown-body {
+      color-scheme: dark;
+      --color-prettylights-syntax-comment: #8b949e;
+      --color-prettylights-syntax-constant: #79c0ff;
+      --color-prettylights-syntax-entity: #d2a8ff;
+      --color-prettylights-syntax-storage-modifier-import: #c9d1d9;
+      --color-prettylights-syntax-entity-tag: #7ee787;
+      --color-prettylights-syntax-keyword: #ff7b72;
+      --color-prettylights-syntax-string: #a5d6ff;
+      --color-prettylights-syntax-variable: #ffa657;
+      --color-prettylights-syntax-string-regexp: #7ee787;
+      --color-fg-default: #d4d4d4;
+      --color-fg-muted: #8b949e;
+      --color-canvas-default: #1e1e1e;
+      --color-canvas-subtle: #252526;
+      --color-border-default: #30363d;
+      --color-border-muted: #21262d;
+    }
+    .katex-block {
+      display: flex;
+      justify-content: center;
+      margin: 1.4em 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 6px 0;
+    }
+    .katex-error {
+      color: #cf222e;
+      background: rgba(207, 34, 46, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.9em;
+    }
+    pre code.hljs {
+      padding: 1em;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body class="markdown-body">
+  <div id="content">${contentHtml}</div>
+</body>
+</html>`;
+    }
+
+    function renderOutput(markdownContent) {
+      try {
+        currentParsedHtml = marked.parse(markdownContent);
+      } catch (err) {
+        currentParsedHtml = '<div class="katex-error"><strong>Parsing Error:</strong> ' + escapeHtml(err.message) + '</div>';
+      }
+
+      const theme = currentTheme();
+
+      // 1. Update Preview IFrame
+      try {
+        const doc = preview.contentDocument || (preview.contentWindow && preview.contentWindow.document);
+        const contentEl = doc && doc.getElementById('content');
+        if (contentEl) {
+          contentEl.innerHTML = currentParsedHtml;
+          doc.documentElement.setAttribute('data-theme', theme);
+          doc.documentElement.style.colorScheme = theme;
+          const hljsTheme = doc.getElementById('hljs-theme');
+          if (hljsTheme) {
+            hljsTheme.href = theme === 'dark'
+              ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css'
+              : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css';
+          }
+        } else {
+          preview.srcdoc = buildFrameDoc(currentParsedHtml, theme);
+        }
+      } catch (_) {
+        preview.srcdoc = buildFrameDoc(currentParsedHtml, theme);
+      }
+
+      // 2. Update Monaco HTML Viewer (if initialized)
+      if (htmlEditorInstance) {
+        const currentVal = htmlEditorInstance.getValue();
+        if (currentVal !== currentParsedHtml) {
+          htmlEditorInstance.setValue(currentParsedHtml);
+        }
+      }
+    }
+
+    // Initial render
+    const initialCode = localStorage.getItem(STORAGE_KEY) || DEFAULT_CODE;
+    renderOutput(initialCode);
+    setView(localStorage.getItem(VIEW_KEY) || 'preview');
+
+    // Theme toggle button
+    themeBtn.addEventListener('click', function () {
+      applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+
+    // Monaco Environment Setup
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        const base = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/';
+        return `data:text/javascript;charset=utf-8,${encodeURIComponent(`
+          self.MonacoEnvironment = { baseUrl: '${base}' };
+          importScripts('${base}vs/base/worker/workerMain.js');
+        `)}`;
+      }
+    };
+
+    require.config({
+      paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' }
+    });
+
+    require(['vs/editor/editor.main'], function () {
+      const initialTheme = currentTheme();
+
+      // Left Pane: Markdown Editor
+      const editor = monaco.editor.create(document.getElementById('editor'), {
+        value: initialCode,
+        language: 'markdown',
+        theme: initialTheme === 'dark' ? 'vs-dark' : 'vs',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 14,
+        lineHeight: 22,
+        padding: { top: 12, bottom: 12 },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        tabSize: 2,
+        renderLineHighlight: 'line',
+        smoothScrolling: true,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8
+        },
+        folding: true,
+        foldingStrategy: 'indentation',
+        showFoldingControls: 'always',
+        foldingHighlight: true,
+        unfoldOnClickAfterEndOfLine: true,
+      });
+
+      // Right Pane: Compiled HTML Read-only Viewer
+      htmlEditorInstance = monaco.editor.create(htmlViewer, {
+        value: currentParsedHtml,
+        language: 'html',
+        theme: initialTheme === 'dark' ? 'vs-dark' : 'vs',
+        readOnly: true,
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 13,
+        lineHeight: 20,
+        padding: { top: 12, bottom: 12 },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        renderLineHighlight: 'all',
+        smoothScrolling: true,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8
+        }
+      });
+
+      editor.layout();
+
+      let liveTimer;
+      editor.onDidChangeModelContent(function () {
+        clearTimeout(liveTimer);
+        liveTimer = setTimeout(function () {
+          const val = editor.getValue();
+          localStorage.setItem(STORAGE_KEY, val);
+          renderOutput(val);
+        }, 150);
+      });
+    });
+  </script>
+</body>
+</html>
