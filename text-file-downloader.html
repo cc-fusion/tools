@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text to File Downloader</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 500px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.5;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font-family: inherit;
+    }
+    button {
+      background-color: #0066cc;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0052a3;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Text File Downloader</h2>
+
+  <label for="filename">Filename</label>
+  <input type="text" id="filename" placeholder="example.txt" value="document.txt">
+
+  <label for="content">Content</label>
+  <textarea id="content" rows="8" placeholder="Enter your text here..."></textarea>
+
+  <button id="downloadBtn">Download File</button>
+
+  <script>
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const text = document.getElementById('content').value;
+      // Fallback to 'download.txt' if the user leaves the filename blank
+      const filename = document.getElementById('filename').value.trim() || 'download.txt';
+
+      // Create a Blob containing the text data
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+
+      // Create a temporary anchor element to trigger the download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      
+      document.body.appendChild(link);
+      link.click();
+
+      // Clean up the temporary element and object URL
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+  </script>
+
+</body>
+</html>
