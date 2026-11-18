@@ -1,350 +1,1077 @@
 <!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Markdown + KaTeX Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+
+<!-- ===================== APP UI STYLES ===================== -->
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --bar: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #d9dde3;
+    --accent: #4f46e5;
+    --accent-text: #ffffff;
+    --editor-bg: #ffffff;
+    --editor-text: #111827;
+    --btn: #f3f4f6;
+    --btn-hover: #e5e7eb;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --bar: #171a21;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --border: #2b303b;
+    --accent: #818cf8;
+    --accent-text: #0b0d12;
+    --editor-bg: #12151b;
+    --editor-text: #e5e7eb;
+    --btn: #232834;
+    --btn-hover: #2e3544;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* ---------- Toolbar ---------- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    padding: 8px 12px;
+    background: var(--bar);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 10;
+  }
+  .brand { font-weight: 700; letter-spacing: .2px; margin-right: 4px; }
+  .brand span { color: var(--accent); }
+  .group { display: flex; align-items: center; gap: 6px; }
+  .group > label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .spacer { flex: 1; }
+
+  button, .btn {
+    font: inherit;
+    color: var(--text);
+    background: var(--btn);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    line-height: 1.2;
+    user-select: none;
+  }
+  button:hover, .btn:hover { background: var(--btn-hover); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.sq { width: 30px; padding: 5px 0; text-align: center; font-weight: 700; }
+
+  .seg { display: inline-flex; gap: 0; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; }
+  .seg button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); position: relative; z-index: 1; }
+
+  input[type="number"] {
+    width: 70px;
+    font: inherit;
+    padding: 4px 6px;
+    color: var(--text);
+    background: var(--editor-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  input[type="range"] { accent-color: var(--accent); cursor: pointer; }
+  #fsSlider { width: 190px; }
+  .unit { color: var(--muted); font-size: 12px; margin-left: -2px; }
+  .check { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
+
+  /* Live toggle */
+  button.toggle[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  #refreshBtn.stale {
+    border-color: #d97706;
+    box-shadow: 0 0 0 2px rgba(217,119,6,.35);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(217,119,6,.15); } }
+  #stState.stale { color: #d97706; font-weight: 600; }
+
+  /* Copy-HTML dropdown */
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 50;
+    min-width: 270px;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  }
+  .menu button { text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 6px; }
+  .menu button:hover { background: var(--btn-hover); }
+  .menu small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 40px;
+    transform: translate(-50%, 12px);
+    background: #111827;
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    z-index: 100;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { background: #b91c1c; }
+
+  /* ---------- Panes ---------- */
+  .panes {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    position: relative;
+    --split: 50%;
+  }
+  .editor-pane {
+    flex: 0 0 var(--split);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--editor-bg);
+  }
+  #editor {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    outline: none;
+    resize: none;
+    padding: 16px;
+    background: var(--editor-bg);
+    color: var(--editor-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 14px;
+    line-height: 1.55;
+    tab-size: 2;
+    white-space: pre-wrap;
+    overflow: auto;
+  }
+  .divider {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    background: var(--border);
+    touch-action: none;
+  }
+  .divider:hover, .divider.drag { background: var(--accent); }
+  .preview-pane {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: auto;
+    background: #ffffff;
+  }
+
+  /* Keep font loading and math measurements available in editor-only mode. */
+  .panes[data-mode="edit"] .preview-pane {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .panes[data-mode="edit"] .divider { display: none; }
+  .panes[data-mode="edit"] .editor-pane { flex: 1; }
+  .panes[data-mode="preview"] .editor-pane,
+  .panes[data-mode="preview"] .divider { display: none; }
+
+  /* ---------- Status bar ---------- */
+  .statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--bar);
+    border-top: 1px solid var(--border);
+  }
+
+  .render-error { color: #b91c1c; padding: 1rem; font-family: monospace; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 760px) {
+    .panes { flex-direction: column; }
+    .editor-pane, .preview-pane { flex: 1 1 0; }
+    .divider { display: none; }
+    #fsSlider { width: 130px; }
+  }
+
+  /* ---------- Print / PDF (page layout) ---------- */
+  @page { margin: 14mm; }
+  @media print {
+    html, body { height: auto !important; overflow: visible !important; background: #fff !important; display: block !important; }
+    .toolbar, .editor-pane, .divider, .statusbar, #toast { display: none !important; }
+    .panes { display: block !important; height: auto !important; overflow: visible !important; }
+    .preview-pane {
+      display: block !important;
+      position: static !important;
+      visibility: visible !important;
+      width: auto !important;
+      height: auto !important;
+      overflow: visible !important;
+      background: #fff !important;
+    }
+  }
+</style>
+
+<!-- ============ PREVIEW TYPOGRAPHY (also exported with "Copy full HTML page") ============
+     Everything is in em so a single --fs value scales text, code, tables AND math. -->
+<style id="previewCss">
+  #preview {
+    --fs: 16px;
+    font-size: var(--fs);
+    line-height: 1.6;
+    padding: 2rem 2.2rem 4rem;
+    color: #1f2328;
+    background: #fff;
+    font-family: "Georgia", "Times New Roman", serif;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+  #preview > :first-child { margin-top: 0; }
+  #preview p, #preview ul, #preview ol, #preview blockquote,
+  #preview pre, #preview table, #preview dl { margin: 0 0 1em; }
+  #preview h1, #preview h2, #preview h3,
+  #preview h4, #preview h5, #preview h6 {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.25;
+    margin: 1.5em 0 .5em;
+    font-weight: 700;
+  }
+  #preview h1 { font-size: 2em;    padding-bottom: .3em; border-bottom: .06em solid #d0d7de; }
+  #preview h2 { font-size: 1.55em; padding-bottom: .25em; border-bottom: .04em solid #d8dee4; }
+  #preview h3 { font-size: 1.25em; }
+  #preview h4 { font-size: 1em; }
+  #preview h5 { font-size: .875em; }
+  #preview h6 { font-size: .85em; color: #57606a; }
+  #preview a { color: #0969da; text-decoration: none; }
+  #preview a:hover { text-decoration: underline; }
+  #preview ul, #preview ol { padding-left: 2em; }
+  #preview li + li { margin-top: .25em; }
+  #preview li > p { margin-bottom: .4em; }
+  #preview ul.contains-task-list, #preview li.task-list-item { list-style: none; }
+  #preview li.task-list-item { margin-left: -1.4em; }
+  #preview li.task-list-item input { margin: 0 .5em 0 0; transform: scale(1.1); }
+  #preview blockquote {
+    padding: .1em 1em;
+    color: #57606a;
+    border-left: .25em solid #d0d7de;
+    background: rgba(0,0,0,.02);
+  }
+  #preview blockquote > :last-child { margin-bottom: 0; }
+  #preview hr { border: 0; border-top: .1em solid #d0d7de; margin: 1.6em 0; }
+  #preview img { max-width: 100%; height: auto; }
+
+  #preview code, #preview pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .88em;
+  }
+  #preview code {
+    background: rgba(175,184,193,.22);
+    padding: .15em .35em;
+    border-radius: .3em;
+  }
+  #preview pre {
+    background: #f6f8fa;
+    border: .06em solid #e1e4e8;
+    border-radius: .4em;
+    padding: .9em 1.1em;
+    overflow: auto;
+    line-height: 1.45;
+  }
+  #preview pre code { background: none; padding: 0; font-size: 1em; border-radius: 0; }
+  #preview .hljs { background: transparent; padding: 0; }
+
+  #preview table {
+    border-collapse: collapse;
+    display: block;
+    max-width: 100%;
+    overflow: auto;
+  }
+  #preview th, #preview td { border: .06em solid #d0d7de; padding: .4em .8em; }
+  #preview th { background: #f6f8fa; font-weight: 600; }
+  #preview tr:nth-child(even) td { background: #fafbfc; }
+
+  /* KaTeX inherits the same em-based size, so math follows the slider */
+  #preview .katex { font-size: 1.1em; }
+  #preview .katex-display {
+    margin: 1em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: .1em 0;
+  }
+  #preview .katex-display > .katex { max-width: 100%; }
+  #preview .katex-error { color: #cc0000; font-family: monospace; font-size: .9em; }
+
+  /* Reserve KaTeX's exact em-based thickness, not its minimum 1px border.
+     The oversized SVG is scaled about the rule's baseline. This also prints
+     with browser background graphics switched off. */
+  #preview .katex .mdk-rule-h {
+    position: relative;
+    height: var(--rule-thickness);
+    min-height: 0;
+  }
+  #preview .katex .mdk-rule-v {
+    position: relative;
+    width: var(--rule-thickness);
+    min-width: 0;
+  }
+  #preview .katex .mdk-rule-h > svg, #preview .katex .mdk-rule-v > svg {
+    position: absolute;
+    left: 0;
+    pointer-events: none;
+    transform-box: border-box;
+    fill: currentColor;
+    stroke: none;
+  }
+  #preview .katex .mdk-rule-h > svg {
+    bottom: 0;
+    width: 100%;
+    height: 1em;
+    transform-origin: left bottom;
+    transform: scaleY(var(--rule-scale));
+  }
+  #preview .katex .mdk-rule-v > svg {
+    top: 0;
+    width: 1em;
+    height: 100%;
+    transform-origin: left top;
+    transform: scaleX(var(--rule-scale));
+  }
+
+  /* Small math is laid out at a 16px base size, then scaled as one vector
+     layer per row. The in-flow box reserves the scaled baseline and size.
+     At and above 16px the wrappers are transparent to normal KaTeX layout. */
+  #preview .mdk-math-run, #preview .mdk-math-ink { display: contents; }
+  #preview .mdk-math-baseline { display: none; }
+  #preview.mdk-small-math .mdk-math-run {
+    display: inline-block;
+    position: relative;
+    width: var(--run-width, 0px);
+    height: var(--run-height, 0px);
+    vertical-align: var(--run-baseline, 0px);
+  }
+  #preview.mdk-small-math .mdk-math-ink {
+    display: inline-block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: max-content;
+    white-space: nowrap;
+    font-size: calc(1em * var(--math-layout-factor));
+    transform-origin: left top;
+    transform: scale(var(--math-ink-factor));
+  }
+  #preview.mdk-small-math .mdk-math-baseline {
+    display: inline-block;
+    width: 0;
+    height: 0;
+  }
+
+  @media print {
+    #preview { padding: 0 !important; }
+    #preview, #preview * {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    #preview h1, #preview h2, #preview h3, #preview h4 { break-after: avoid; }
+    #preview pre, #preview blockquote, #preview tr, #preview img { break-inside: avoid; }
+    #preview .katex-display { break-inside: avoid; overflow: visible; }
+    #preview pre { white-space: pre-wrap; word-break: break-word; }
+    #preview table { display: table; }
+  }
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <div class="brand">MD<span>·</span>KaTeX</div>
+
+  <div class="group seg" id="modeSeg" role="group" aria-label="View mode">
+    <button data-mode="edit"    title="Editor only">Edit</button>
+    <button data-mode="split"   title="Editor + preview" class="active">Split</button>
+    <button data-mode="preview" title="Preview only">Preview</button>
+  </div>
+
+  <div class="group">
+    <label>Preview font</label>
+    <button class="sq" id="fsDown" title="Smaller (−10%)">A−</button>
+    <input type="range" id="fsSlider" min="0" max="1000" step="1" title="Logarithmic slider: 4 px – 400 px">
+    <button class="sq" id="fsUp" title="Larger (+10%)">A+</button>
+    <input type="number" id="fsNum" min="4" max="400" step="any" title="Font size in px">
+    <span class="unit">px</span>
+    <button id="fsReset" title="Reset to 16 px">Reset</button>
+  </div>
+
+  <div class="group">
+    <label>Editor</label>
+    <button class="sq" id="edDown" title="Editor font smaller">A−</button>
+    <button class="sq" id="edUp"   title="Editor font larger">A+</button>
+  </div>
+
+  <div class="group">
+    <button id="liveBtn" class="toggle" aria-pressed="true"
+            title="Live preview: re-render as you type">Live: On</button>
+    <button id="refreshBtn" hidden title="Render now (Ctrl/Cmd + Enter)">Refresh</button>
+  </div>
+
+  <label class="check" title="Keep editor and preview scrolled to the same position">
+    <input type="checkbox" id="syncScroll" checked> Sync scroll
+  </label>
+
+  <div class="spacer"></div>
+
+  <div class="group">
+    <button id="openBtn" title="Open a .md / .txt file">Open</button>
+    <button id="saveMd"  title="Download the Markdown source">Save .md</button>
+
+    <div class="menu-wrap" id="htmlMenuWrap">
+      <div class="seg">
+        <button id="copyHtmlBtn" title="Copy the rendered HTML (fragment)">Copy HTML</button>
+        <button id="htmlMenuBtn" class="sq" aria-haspopup="true" aria-expanded="false" title="More HTML options">▾</button>
+      </div>
+      <div class="menu" id="htmlMenu" role="menu" hidden>
+        <button role="menuitem" data-act="fragment">
+          Copy HTML fragment
+          <small>Rendered content only (paste into your own page)</small>
+        </button>
+        <button role="menuitem" data-act="page">
+          Copy full HTML page
+          <small>Standalone document with styles + KaTeX CSS link</small>
+        </button>
+        <button role="menuitem" data-act="download">
+          Download .html file
+          <small>Same standalone document, saved to disk</small>
+        </button>
+      </div>
+    </div>
+
+    <button id="themeBtn" title="Toggle light/dark interface">Theme</button>
+    <button id="pdfBtn" class="primary" title="Opens print dialog — choose “Save as PDF”">Download PDF</button>
+  </div>
+  <input type="file" id="fileInput" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden>
+</header>
+
+<main class="panes" id="panes" data-mode="split">
+  <section class="editor-pane">
+    <textarea id="editor" spellcheck="false" placeholder="Write Markdown and $\LaTeX$ here…"></textarea>
+  </section>
+  <div class="divider" id="divider" title="Drag to resize"></div>
+  <section class="preview-pane" id="previewPane">
+    <article id="preview"></article>
+  </section>
+</main>
+
+<footer class="statusbar">
+  <span id="stState"></span>
+  <span id="stWords">0 words</span>
+  <span id="stChars">0 chars</span>
+  <span id="stFont">Preview: 16 px</span>
+  <span>Ctrl + scroll over the preview to zoom text</span>
+  <span>Math: <code>$…$</code> <code>$$…$$</code> <code>\(…\)</code> <code>\[…\]</code></span>
+</footer>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="text/plain" id="sample">
+# Markdown + KaTeX Viewer
+
+Write on the left, see the result on the right. Use the **font slider** in the toolbar
+(from *4 px* all the way to *400 px*) — text, code, tables **and** math all scale together.
+
+## Inline and display math
+
+Euler's identity $e^{i\pi} + 1 = 0$ sits comfortably inside a sentence, and so does
+$\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$. A small fraction: $\frac{a}{b}$.
+
+The Gaussian integral:
+
+$$
+\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+$$
+
+The quadratic formula, using the alternative delimiters \( x = \frac{-b \pm \sqrt{b^2-4ac}}{2a} \):
+
+\[
+\mathcal{F}\{f\}(\xi) = \int_{-\infty}^{\infty} f(x)\, e^{-2\pi i x \xi}\, dx
+\]
+
+## Environments
+
+$$
+\begin{aligned}
+\nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \\
+\nabla \cdot \mathbf{B} &= 0 \\
+\nabla \times \mathbf{E} &= -\frac{\partial \mathbf{B}}{\partial t} \\
+\nabla \times \mathbf{B} &= \mu_0\mathbf{J} + \mu_0\varepsilon_0\frac{\partial \mathbf{E}}{\partial t}
+\end{aligned}
+$$
+
+$$
+A = \begin{pmatrix} a & b \\ c & d \end{pmatrix}, \qquad
+|x| = \begin{cases} x & x \ge 0 \\ -x & x < 0 \end{cases}
+$$
+
+## Rich Markdown
+
+> “Mathematics is the art of giving the same name to different things.”
+> — Henri Poincaré
+
+| Function | Derivative        | Integral               |
+|----------|-------------------|------------------------|
+| $\sin x$ | $\cos x$          | $-\cos x + C$          |
+| $e^x$    | $e^x$             | $e^x + C$              |
+| $\ln x$  | $\dfrac{1}{x}$    | $x\ln x - x + C$       |
+
+- [x] Tables and task lists
+- [x] Syntax-highlighted code
+- [ ] Your own document
+
+~~~python
+def fib(n: int) -> int:
+    """Return the n-th Fibonacci number."""
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+~~~
+
+Inline code such as `$not_math$` is left alone, and currency like $5 and $10 is not mistaken
+for math. Escaped dollars \$ also work.
+
+---
+
+*Tips:* press **Download PDF** and choose “Save as PDF” as the destination, or use
+**Copy HTML** to grab the rendered markup.
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const editor = $('editor'), preview = $('preview'), previewPane = $('previewPane');
+  const panes = $('panes'), divider = $('divider');
+  const fsSlider = $('fsSlider'), fsNum = $('fsNum');
+  const liveBtn = $('liveBtn'), refreshBtn = $('refreshBtn');
+
+  const FS_MIN = 4, FS_MAX = 400, FS_DEFAULT = 16;
+  const ED_MIN = 8, ED_MAX = 48;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const escHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const store = {
+    get: (k, d) => { try { const v = localStorage.getItem('mdkatex.' + k); return v === null ? d : v; } catch { return d; } },
+    set: (k, v) => { try { localStorage.setItem('mdkatex.' + k, v); } catch {} }
+  };
+
+  /* ================= Toast ================= */
+
+  let toastTimer = null;
+  function toast(msg, isErr = false) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.toggle('err', isErr);
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1900);
+  }
+
+  /* ================= Rendering ================= */
+
+  // Alternation order matters: code & escaped dollars are matched first and returned untouched.
+  const TOKEN_RE = new RegExp(
+    '(`{3}[\\s\\S]*?`{3}|~{3}[\\s\\S]*?~{3}|`[^`\\n]*`|\\\\\\$)' +   // 1: code / escaped $
+    '|\\$\\$([\\s\\S]+?)\\$\\$' +                                    // 2: $$ display $$
+    '|\\\\\\[([\\s\\S]+?)\\\\\\]' +                                  // 3: \[ display \]
+    '|\\\\\\(([\\s\\S]+?)\\\\\\)' +                                  // 4: \( inline \)
+    '|\\$(?!\\s)((?:\\\\.|[^$\\\\\\n])+?)(?<!\\s)\\$(?!\\d)',        // 5: $ inline $
+    'g'
+  );
+
+  function renderMarkdown(src) {
+    const maths = [];
+    const protectedSrc = src.replace(TOKEN_RE, (m, code, dd, br, par, inl) => {
+      if (code !== undefined) return code;
+      let tex, display;
+      if (dd  !== undefined)      { tex = dd;  display = true;  }
+      else if (br  !== undefined) { tex = br;  display = true;  }
+      else if (par !== undefined) { tex = par; display = false; }
+      else                        { tex = inl; display = false; }
+      maths.push({ tex, display });
+      return 'KTXPH' + (maths.length - 1) + 'ENDKTX';
+    });
+
+    let html = marked.parse(protectedSrc, { gfm: true, breaks: false });
+    html = DOMPurify.sanitize(html);
+
+    return html.replace(/KTXPH(\d+)ENDKTX/g, (_, i) => {
+      const { tex, display } = maths[+i];
+      try {
+        return katex.renderToString(tex.trim(), {
+          displayMode: display,
+          throwOnError: false,
+          strict: 'ignore',
+          trust: false,
+          output: 'htmlAndMathml'
+        });
+      } catch (e) {
+        return '<span class="katex-error">' + escHtml(tex) + '</span>';
+      }
+    });
+  }
+
+  function fixKatexRules(root) {
+    const EM = /^((?:\d+\.?\d*|\.\d+))em$/;
+    const SVG = 'http://www.w3.org/2000/svg';
+    const rules = root.querySelectorAll('.katex :is(.frac-line, .overline-line, .underline-line, .hline, .vertical-separator)');
+    for (const el of rules) {
+      const vertical = el.classList.contains('vertical-separator');
+      if (vertical && el.style.borderRightStyle !== 'solid') continue;
+      const side = vertical ? 'borderRightWidth' : 'borderBottomWidth';
+      const m = EM.exec(el.style[side]);
+      const amount = m ? m[1] : null;
+      if (!amount || +amount <= 0) continue;
+
+      el.style[side] = '0';
+      el.style.setProperty('--rule-thickness', amount + 'em');
+      el.style.setProperty('--rule-scale', amount);
+      el.classList.add(vertical ? 'mdk-rule-v' : 'mdk-rule-h');
+
+      const svg = document.createElementNS(SVG, 'svg');
+      svg.setAttribute('viewBox', '0 0 1 1');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      svg.setAttribute('aria-hidden', 'true');
+      const rect = document.createElementNS(SVG, 'rect');
+      rect.setAttribute('width', '1');
+      rect.setAttribute('height', '1');
+      svg.append(rect);
+      el.append(svg);
+    }
+  }
+
+  function prepareTinyMath(root) {
+    for (const html of root.querySelectorAll('.katex > .katex-html')) {
+      let ink = null;
+      for (const child of Array.from(html.children)) {
+        // Leave explicit newlines and display equation tags in KaTeX's flow.
+        if (!child.classList.contains('base')) { ink = null; continue; }
+        if (!ink) {
+          const run = document.createElement('span');
+          run.className = 'mdk-math-run';
+          ink = document.createElement('span');
+          ink.className = 'mdk-math-ink';
+          const baseline = document.createElement('span');
+          baseline.className = 'mdk-math-baseline';
+          baseline.setAttribute('aria-hidden', 'true');
+          ink.append(baseline);
+          run.append(ink);
+          html.insertBefore(run, child);
+        }
+        ink.insertBefore(child, ink.lastElementChild);
+        if (child.querySelector('.allowbreak')) ink = null;
+      }
+    }
+  }
+
+  function fitTinyMath() {
+    if (!preview.classList.contains('mdk-small-math')) return;
+    // Read all measurements first, then write them. Store in em so the
+    // standalone HTML export retains its inline baseline and proportions.
+    const sizes = Array.from(preview.querySelectorAll('.katex-html > .mdk-math-run'), run => {
+      const ink = run.firstElementChild;
+      const box = ink.getBoundingClientRect();
+      const baselineY = ink.lastElementChild.getBoundingClientRect().top;
+      const em = parseFloat(getComputedStyle(run).fontSize);
+      return [run, box.width / em, box.height / em, (baselineY - box.bottom) / em];
+    });
+    for (const [run, width, height, shift] of sizes) {
+      run.style.setProperty('--run-width', width.toFixed(6) + 'em');
+      run.style.setProperty('--run-height', height.toFixed(6) + 'em');
+      run.style.setProperty('--run-baseline', shift.toFixed(6) + 'em');
+    }
+  }
+
+  document.fonts.addEventListener('loadingdone', fitTinyMath);
+
+  /* ---- Live preview state ---- */
+  let live = true, stale = false, timer = null;
+  let cleanHtml = '';          // pristine rendered HTML (for "Copy HTML")
+
+  function updateStats() {
+    const src = editor.value;
+    const words = src.trim() ? src.trim().split(/\s+/).length : 0;
+    $('stWords').textContent = words.toLocaleString() + (words === 1 ? ' word' : ' words');
+    $('stChars').textContent = src.length.toLocaleString() + ' chars';
+  }
+
+  function setStale(v) {
+    stale = v;
+    refreshBtn.classList.toggle('stale', v);
+    const s = $('stState');
+    s.classList.toggle('stale', v);
+    s.textContent = v ? 'Preview out of date: press Refresh (Ctrl+Enter)' : '';
+  }
+
+  function render() {
+    clearTimeout(timer);
+    timer = null;
+    setStale(false);
+    const src = editor.value;
+    if (!(window.marked && window.katex && window.DOMPurify)) {
+      cleanHtml = '';
+      preview.innerHTML = '<div class="render-error">Could not load rendering libraries (marked / KaTeX / DOMPurify). Check your internet connection.</div>';
+      updateStats();
+      return;
+    }
+    try {
+      preview.innerHTML = renderMarkdown(src);
+      if (window.hljs) {
+        preview.querySelectorAll('pre code').forEach(el => { try { hljs.highlightElement(el); } catch {} });
+      }
+      cleanHtml = preview.innerHTML;     // raw output for the Copy HTML fragment action
+      fixKatexRules(preview);
+      prepareTinyMath(preview);
+      fitTinyMath();
+    } catch (e) {
+      cleanHtml = '';
+      preview.innerHTML = '<div class="render-error">Render error: ' + escHtml(String(e.message || e)) + '</div>';
+    }
+    updateStats();
+  }
+
+  function scheduleRender() {
+    clearTimeout(timer);
+    if (!live) { setStale(true); updateStats(); return; }
+    timer = setTimeout(render, 120);
+  }
+
+  function ensureFresh() {
+    if (stale || timer) { clearTimeout(timer); timer = null; render(); }
+  }
+
+  /* ================= Live toggle ================= */
+
+  function setLive(on) {
+    live = on;
+    liveBtn.setAttribute('aria-pressed', String(on));
+    liveBtn.textContent = 'Live: ' + (on ? 'On' : 'Off');
+    refreshBtn.hidden = on;
+    store.set('live', on ? '1' : '0');
+    if (on) { clearTimeout(timer); if (stale) render(); }
+  }
+  liveBtn.addEventListener('click', () => setLive(!live));
+  refreshBtn.addEventListener('click', () => { clearTimeout(timer); render(); });
+
+  /* ================= Preview font size ================= */
+
+  const posToSize = p => FS_MIN * Math.pow(FS_MAX / FS_MIN, p / 1000);
+  const sizeToPos = s => Math.log(s / FS_MIN) / Math.log(FS_MAX / FS_MIN) * 1000;
+  let fontSize = FS_DEFAULT;
+
+  function setFont(px, { fromNum = false, fromSlider = false } = {}) {
+    fontSize = clamp(Math.round(px * 10) / 10, FS_MIN, FS_MAX);
+    preview.style.setProperty('--fs', fontSize + 'px');
+    const scale = Math.min(1, fontSize / FS_DEFAULT);
+    preview.style.setProperty('--math-layout-factor', 1 / scale);
+    preview.style.setProperty('--math-ink-factor', scale);
+    preview.classList.toggle('mdk-small-math', scale < 1);
+    fitTinyMath();
+    if (!fromSlider) fsSlider.value = sizeToPos(fontSize);
+    if (!fromNum) fsNum.value = fontSize;
+    $('stFont').textContent = 'Preview: ' + fontSize + ' px';
+    store.set('fs', fontSize);
+  }
+
+  fsSlider.addEventListener('input', () => setFont(posToSize(+fsSlider.value), { fromSlider: true }));
+  fsNum.addEventListener('input', () => {
+    const v = parseFloat(fsNum.value);
+    if (!isNaN(v) && v >= FS_MIN && v <= FS_MAX) setFont(v, { fromNum: true });
+  });
+  fsNum.addEventListener('change', () => {
+    const v = parseFloat(fsNum.value);
+    setFont(isNaN(v) ? fontSize : v);
+  });
+  $('fsUp').addEventListener('click',   () => setFont(Math.max(fontSize * 1.1, fontSize + 0.1)));
+  $('fsDown').addEventListener('click', () => setFont(Math.min(fontSize / 1.1, fontSize - 0.1)));
+  $('fsReset').addEventListener('click', () => setFont(FS_DEFAULT));
+
+  // Ctrl/Cmd + wheel over the preview zooms the text
+  previewPane.addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    setFont(fontSize * (e.deltaY < 0 ? 1.08 : 1 / 1.08));
+  }, { passive: false });
+
+  /* ================= Editor font size ================= */
+
+  let edSize = 14;
+  function setEditorFont(px) {
+    edSize = clamp(px, ED_MIN, ED_MAX);
+    editor.style.fontSize = edSize + 'px';
+    store.set('ed', edSize);
+  }
+  $('edUp').addEventListener('click',   () => setEditorFont(edSize + 1));
+  $('edDown').addEventListener('click', () => setEditorFont(edSize - 1));
+
+  /* ================= Editor behaviour ================= */
+
+  editor.addEventListener('input', () => {
+    store.set('content', editor.value);
+    scheduleRender();
+  });
+  editor.addEventListener('keydown', e => {
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      editor.setRangeText('  ', editor.selectionStart, editor.selectionEnd, 'end');
+      editor.dispatchEvent(new Event('input'));
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      clearTimeout(timer);
+      render();
+    }
+  });
+
+  /* ================= Scroll sync ================= */
+
+  let syncLock = false;
+  function syncFrom(src, dst) {
+    if (!$('syncScroll').checked || syncLock) return;
+    const max = src.scrollHeight - src.clientHeight;
+    if (max <= 0) return;
+    const ratio = src.scrollTop / max;
+    syncLock = true;
+    dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight);
+    requestAnimationFrame(() => { syncLock = false; });
+  }
+  editor.addEventListener('scroll', () => syncFrom(editor, previewPane));
+  previewPane.addEventListener('scroll', () => syncFrom(previewPane, editor));
+
+  /* ================= View mode & divider ================= */
+
+  $('modeSeg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-mode]');
+    if (b) setMode(b.dataset.mode);
+  });
+  function setMode(m) {
+    panes.dataset.mode = m;
+    document.querySelectorAll('#modeSeg button').forEach(x => x.classList.toggle('active', x.dataset.mode === m));
+    store.set('mode', m);
+  }
+
+  divider.addEventListener('pointerdown', e => {
+    divider.setPointerCapture(e.pointerId);
+    divider.classList.add('drag');
+    document.body.style.userSelect = 'none';
+  });
+  divider.addEventListener('pointermove', e => {
+    if (!divider.classList.contains('drag')) return;
+    const r = panes.getBoundingClientRect();
+    const pct = clamp((e.clientX - r.left) / r.width * 100, 15, 85);
+    panes.style.setProperty('--split', pct + '%');
+  });
+  const endDrag = () => { divider.classList.remove('drag'); document.body.style.userSelect = ''; };
+  divider.addEventListener('pointerup', endDrag);
+  divider.addEventListener('pointercancel', endDrag);
+
+  /* ================= Files ================= */
+
+  function download(name, text, type) {
+    const blob = new Blob([text], { type });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function docName() {
+    const h = preview.querySelector('h1, h2, h3');
+    const raw = (h ? h.textContent : 'document').trim();
+    return raw.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').slice(0, 60) || 'document';
+  }
+
+  $('saveMd').addEventListener('click', () => download(docName() + '.md', editor.value, 'text/markdown'));
+  $('openBtn').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) readFile(f);
+    e.target.value = '';
+  });
+  function readFile(f) {
+    const r = new FileReader();
+    r.onload = () => { editor.value = r.result; store.set('content', editor.value); clearTimeout(timer); render(); };
+    r.readAsText(f);
+  }
+  ['dragover', 'drop'].forEach(ev => editor.addEventListener(ev, e => {
+    e.preventDefault();
+    if (ev === 'drop' && e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+  }));
+
+  /* ================= Copy / export HTML ================= */
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch {}
+      ta.remove();
+      return ok;
+    }
+  }
+
+  function buildPage() {
+    const css = $('previewCss').textContent;
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HTML Compiler</title>
-  <style>
-    :root {
-      --bg: #ffffff;
-      --fg: #1a1a1a;
-      --toolbar: #f6f6f6;
-      --border: #e5e5e5;
-      --btn: #111111;
-      --btn-fg: #ffffff;
-      --btn-hover: #333333;
-      --ghost: transparent;
-      --ghost-hover: #ececec;
-      --resizer: #e5e5e5;
-      --resizer-hover: #c8c8c8;
-    }
-
-    html[data-theme="dark"] {
-      --bg: #1e1e1e;
-      --fg: #d4d4d4;
-      --toolbar: #252526;
-      --border: #2b2b2b;
-      --btn: #f0f0f0;
-      --btn-fg: #111111;
-      --btn-hover: #ffffff;
-      --ghost: transparent;
-      --ghost-hover: #333333;
-      --resizer: #2b2b2b;
-      --resizer-hover: #4a4a4a;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html, body {
-      height: 100%;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-    }
-
-    body {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 44px;
-      padding: 0 10px;
-      background: var(--toolbar);
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    #run {
-      appearance: none;
-      border: none;
-      background: var(--btn);
-      color: var(--btn-fg);
-      height: 28px;
-      padding: 0 14px;
-      border-radius: 6px;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-      cursor: pointer;
-    }
-
-    #run:hover { background: var(--btn-hover); }
-    #run:active { transform: scale(0.97); }
-
-    #theme {
-      appearance: none;
-      border: none;
-      background: var(--ghost);
-      color: var(--fg);
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-      display: grid;
-      place-items: center;
-      cursor: pointer;
-    }
-
-    #theme:hover { background: var(--ghost-hover); }
-    #theme svg { width: 16px; height: 16px; display: block; }
-    html[data-theme="light"] #theme .sun { display: none; }
-    html[data-theme="dark"] #theme .moon { display: none; }
-
-    #run:focus-visible,
-    #theme:focus-visible {
-      outline: 2px solid var(--btn);
-      outline-offset: 2px;
-    }
-
-    .main {
-      flex: 1;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 5px minmax(0, 1fr);
-      min-height: 0;
-    }
-
-    #editor {
-      min-width: 0;
-      height: 100%;
-      overflow: hidden;
-    }
-
-    .resizer {
-      position: relative;
-      z-index: 2;
-      background: var(--resizer);
-      cursor: col-resize;
-      user-select: none;
-      touch-action: none;
-    }
-
-    .resizer::before {
-      content: '';
-      position: absolute;
-      inset: 0 -4px;
-    }
-
-    .resizer:hover,
-    .resizer.active {
-      background: var(--resizer-hover);
-    }
-
-    body.resizing {
-      cursor: col-resize;
-      user-select: none;
-    }
-
-    body.resizing #preview {
-      pointer-events: none;
-    }
-
-    #preview {
-      width: 100%;
-      height: 100%;
-      border: none;
-      background: #fff;
-      min-width: 0;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escHtml(docName())}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<style>
+  @page { margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; }
+${css}
+</style>
 </head>
 <body>
-  <div class="toolbar">
-    <button id="run" type="button">Run</button>
-    <button id="theme" type="button" aria-label="Toggle theme">
-      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="4"/>
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-      </svg>
-      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/>
-      </svg>
-    </button>
-  </div>
-  <div class="main" id="main">
-    <div id="editor"></div>
-    <div class="resizer" id="resizer"></div>
-    <iframe id="preview" loading="lazy" importance="high" referrerpolicy="no-referrer-when-downgrade" credentialless sandbox="allow-downloads allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocols" allow="accelerometer; ambient-light-sensor; autoplay; battery; camera; display-capture; document-domain; encrypted-media; execution-while-not-rendered; execution-while-out-of-viewport; fullscreen; gamepad; geolocation; gyroscope; hid; identity-credentials-get; idle-detection; local-fonts; magnetometer; microphone; midi; otp-credentials; payment; picture-in-picture; publickey-credentials-get; screen-wake-lock; serial; speaker-selection; usb; web-share; window-management; xr-spatial-tracking" allowfullscreen="true" allowpaymentrequest="true" title="Preview"></iframe>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
-  <script>
-    const STORAGE_KEY = 'html-compiler-code';
-    const THEME_KEY = 'html-compiler-theme';
-    const SPLIT_KEY = 'html-compiler-split';
-    const MIN_PANE = 120;
-    const DEFAULT_CODE = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Document</title>
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      margin: 2rem;
-    }
-  </style>
-</head>
-<body>
-  <h1>Hello, world</h1>
+${preview.outerHTML}
 </body>
 </html>
 `;
+  }
 
-    function systemTheme() {
-      return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  async function settlePreviewFonts() {
+    // Request the fonts of any newly inserted math before testing readiness.
+    preview.getBoundingClientRect();
+    await document.fonts.ready;
+    fitTinyMath();
+  }
+
+  async function htmlAction(act) {
+    ensureFresh();
+    if (!cleanHtml) { toast('Nothing to copy', true); return; }
+    if (act !== 'fragment') await settlePreviewFonts();
+    if (act === 'download') {
+      download(docName() + '.html', buildPage(), 'text/html');
+      toast('HTML file downloaded');
+      return;
     }
+    const isPage = act === 'page';
+    const ok = await copyText(isPage ? buildPage() : cleanHtml);
+    toast(ok ? (isPage ? 'Full HTML page copied' : 'HTML fragment copied')
+             : 'Copy failed: clipboard access blocked', !ok);
+  }
 
-    function currentTheme() {
-      return document.documentElement.getAttribute('data-theme') || systemTheme();
-    }
+  const menuWrap = $('htmlMenuWrap'), menu = $('htmlMenu'), menuBtn = $('htmlMenuBtn');
+  function toggleMenu(open) {
+    open = open ?? menu.hidden;
+    menu.hidden = !open;
+    menuBtn.setAttribute('aria-expanded', String(open));
+  }
+  menuBtn.addEventListener('click', e => { e.stopPropagation(); toggleMenu(); });
+  document.addEventListener('click', e => { if (!menuWrap.contains(e.target)) toggleMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleMenu(false); });
+  menu.addEventListener('click', e => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    toggleMenu(false);
+    htmlAction(b.dataset.act);
+  });
+  $('copyHtmlBtn').addEventListener('click', () => htmlAction('fragment'));
 
-    function applyTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem(THEME_KEY, theme);
-      if (window.monaco) monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-    }
+  /* ================= PDF (print to PDF) ================= */
 
-    applyTheme(localStorage.getItem(THEME_KEY) || systemTheme());
+  // Also support the browser's own Print command, not just the toolbar button.
+  window.addEventListener('beforeprint', () => {
+    ensureFresh();
+    fitTinyMath();
+  });
 
-    const main = document.getElementById('main');
-    const resizer = document.getElementById('resizer');
-    let splitRatio = 0.5;
-    let resizing = false;
+  $('pdfBtn').addEventListener('click', async () => {
+    render();
+    await settlePreviewFonts();
+    const oldTitle = document.title;
+    document.title = docName();     // becomes the suggested PDF filename
+    window.addEventListener('afterprint', () => { document.title = oldTitle; }, { once: true });
+    window.print();
+  });
 
-    function applySplit(ratio) {
-      const rect = main.getBoundingClientRect();
-      const minRatio = rect.width > 0 ? MIN_PANE / rect.width : 0.15;
-      const maxRatio = 1 - minRatio;
-      splitRatio = Math.min(maxRatio, Math.max(minRatio, ratio));
-      main.style.gridTemplateColumns =
-        `minmax(0, ${splitRatio}fr) 5px minmax(0, ${1 - splitRatio}fr)`;
-    }
+  /* ================= Theme ================= */
 
-    const savedSplit = parseFloat(localStorage.getItem(SPLIT_KEY));
-    applySplit(Number.isFinite(savedSplit) ? savedSplit : 0.5);
+  function setTheme(t) {
+    document.documentElement.dataset.theme = t;
+    store.set('theme', t);
+  }
+  $('themeBtn').addEventListener('click', () =>
+    setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
 
-    function endResize() {
-      if (!resizing) return;
-      resizing = false;
-      resizer.classList.remove('active');
-      document.body.classList.remove('resizing');
-      localStorage.setItem(SPLIT_KEY, String(splitRatio));
-    }
+  /* ================= Init ================= */
 
-    resizer.addEventListener('pointerdown', function (e) {
-      if (e.button !== 0) return;
-      resizing = true;
-      resizer.classList.add('active');
-      document.body.classList.add('resizing');
-      resizer.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    });
-
-    resizer.addEventListener('pointermove', function (e) {
-      if (!resizing) return;
-      const rect = main.getBoundingClientRect();
-      applySplit((e.clientX - rect.left) / rect.width);
-    });
-
-    resizer.addEventListener('pointerup', endResize);
-    resizer.addEventListener('pointercancel', endResize);
-    window.addEventListener('resize', function () {
-      applySplit(splitRatio);
-    });
-
-    window.MonacoEnvironment = {
-      getWorkerUrl: function () {
-        const base = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/';
-        return `data:text/javascript;charset=utf-8,${encodeURIComponent(`
-          self.MonacoEnvironment = { baseUrl: '${base}' };
-          importScripts('${base}vs/base/worker/workerMain.js');
-        `)}`;
-      }
-    };
-
-    require.config({
-      paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' }
-    });
-
-    require(['vs/editor/editor.main'], function () {
-      const initialTheme = currentTheme();
-      const initialCode = localStorage.getItem(STORAGE_KEY) || DEFAULT_CODE;
-    
-      const editor = monaco.editor.create(document.getElementById('editor'), {
-        value: initialCode,
-        language: 'html',
-        theme: initialTheme === 'dark' ? 'vs-dark' : 'vs',
-        automaticLayout: true,
-        minimap: { enabled: false },
-        fontSize: 14,
-        lineHeight: 22,
-        padding: { top: 12, bottom: 12 },
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        tabSize: 2,
-        renderLineHighlight: 'line',
-        smoothScrolling: true,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-        overviewRulerLanes: 0,
-        hideCursorInOverviewRuler: true,
-        scrollbar: {
-          verticalScrollbarSize: 8,
-          horizontalScrollbarSize: 8
-        },
-        folding: true,
-        foldingStrategy: 'indentation',
-        showFoldingControls: 'always',
-        foldingHighlight: true,
-        unfoldOnClickAfterEndOfLine: true,
-      });
-    
-      // Ensure HTML syntax highlighting is applied on page load.
-      const model = editor.getModel();
-    
-      if (model) {
-        monaco.editor.setModelLanguage(model, 'html');
-      }
-    
-      monaco.editor.setTheme(
-        initialTheme === 'dark' ? 'vs-dark' : 'vs'
-      );
-    
-      editor.layout();
-    
-      const preview = document.getElementById('preview');
-      let saveTimer;
-    
-      function save() {
-        localStorage.setItem(STORAGE_KEY, editor.getValue());
-      }
-    
-      function run() {
-        save();
-        preview.srcdoc = editor.getValue();
-      }
-    
-      editor.onDidChangeModelContent(function () {
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(save, 250);
-      });
-    
-      document.getElementById('run').addEventListener('click', run);
-    
-      document.getElementById('theme').addEventListener('click', function () {
-        applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
-      });
-    
-      editor.addCommand(
-        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-        run
-      );
-    
-      // run(); // this line prevents the user from accessing their code if an infinite loop is created
-    });
-  </script>
+  setTheme(store.get('theme', matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  setMode(store.get('mode', 'split'));
+  setEditorFont(parseFloat(store.get('ed', 14)) || 14);
+  setFont(parseFloat(store.get('fs', FS_DEFAULT)) || FS_DEFAULT);
+  editor.value = store.get('content', null) ?? $('sample').textContent.replace(/^\n/, '');
+  render();
+  setLive(store.get('live', '1') === '1');
+})();
+</script>
 </body>
 </html>
